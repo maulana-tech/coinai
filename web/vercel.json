@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/**/*.ts": { "maxDuration": 60 }
+  },
+  "crons": [{ "path": "/api/cron/daily", "schedule": "0 1 * * *" }],
+  "rewrites": [
+    { "source": "/((?!api/|assets/|logos/|favicon.ico).*)", "destination": "/index.html" }
+  ]
+}
