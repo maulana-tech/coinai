@@ -56,7 +56,7 @@ const SECONDARY_ACTIONS: SecondaryAction[] = [
 export function Dashboard() {
   const { address } = useWallet()
   const { account, accountStatus, rates, activity, refresh } = useAppState()
-  const { data: yieldData, loading: yieldLoading } = useYieldData()
+  const { vaults, loading: yieldLoading } = useYieldData(address)
   const navigate = useNavigate()
   const t = useT()
 
@@ -65,11 +65,6 @@ export function Dashboard() {
   const loading = accountStatus === 'loading'
   const funded = faucetedFlag(address) || activity.length > 0
   const received = activity.some((item) => item.kind === 'pay')
-  // no unused onboarding variable
-  const yieldTvl =
-    yieldData.vaultStats.idle !== null && yieldData.vaultStats.invested !== null
-      ? yieldData.vaultStats.idle + yieldData.vaultStats.invested
-      : null
 
   return (
     <div key={address} className="space-y-5">
@@ -138,17 +133,10 @@ export function Dashboard() {
             </Link>
           </section>
           <YieldSourcesCard
-            sparkdexApy={yieldData.sparkdexPoolInfo.apy}
-            sparkdexTvl={yieldData.sparkdexPoolInfo.tvl}
-            firelightApy={null}
-            firelightTvl={yieldTvl}
-            upshiftApy={yieldData.upshiftStats.apy}
-            upshiftTvl={yieldData.upshiftStats.tvl}
-            mainnetApy={yieldData.mainnetApy}
+            vaults={vaults}
             loading={yieldLoading}
             rates={rates}
             selectedTarget={account?.yieldTarget}
-            targetHealth={yieldData.targetHealth}
           />
           <ActivityCard />
         </>
