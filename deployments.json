@@ -1,0 +1,11 @@
+{
+  "coston2": {
+    "coinai": "0x588DeC15D915659E8BF36c01e662479916301d3A",
+    "sparkdexAdapter": "0xD04A92C83AFe71f4f69F9FAD0A33229BFBdE33E6",
+    "vaultAdapter": "0x3c13BDd505DE69bB0DF0a2e68A0Cd93a44beB0b4",
+    "fxrp": "0x0b6A3645c240605887a5532109323A3E12273dc7",
+    "sparkdexRouter": "0x4a1E5A90e9943467FAd1acea1E7F0e5e88472a1e",
+    "firelightVault": "0x780780D122f075ada1Fa86A18dE2e0763B2526Ec",
+    "upshiftVault": "0x24c1a47cD5e8473b64EAB2a94515a196E10C7C81"
+  }
+}
