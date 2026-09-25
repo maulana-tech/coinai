@@ -4,20 +4,18 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { YieldRouteBadge } from '@/components/yield-route-badge'
-import { fxrpToInput } from '@/lib/format'
+import { tokenToInput } from '@/lib/format'
 import { formatMoney, useT } from '@/lib/i18n'
 import type { FxRates } from '@/lib/rates'
 import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
-import { computeSavingsPosition, savingsHistory, valueOfShares } from '@/lib/yield'
+import { computeSavingsPosition, savingsHistory, totalInvested, type Vaults } from '@/lib/yield'
 import type { ActivityItem } from '@/lib/activity'
 import type { CoinAIAccount } from '@/lib/types'
 
 type YieldPositionCardProps = {
   account: CoinAIAccount | null
   activity: ActivityItem[]
-  sharePrice: bigint | null
-  sparkdexPoolInfo: { apy: number | null; tvl: bigint | null; feeRate: bigint | null }
-  upshiftStats: { apy: number | null; tvl: bigint | null }
+  vaults: Vaults | null
   loading: boolean
   rates: FxRates
 }
@@ -51,7 +49,7 @@ function Stat({
           (tone === 'gold' ? 'text-gold-ink' : tone === 'muted' ? 'text-muted-foreground' : '')
         }
       >
-        <TokenIcon token="fxrp" size={24} />
+        <TokenIcon token="usdt" size={24} />
         {amount}
       </p>
       <p className="text-xs text-muted-foreground tabular-nums">{secondary}</p>
@@ -62,9 +60,7 @@ function Stat({
 export function YieldPositionCard({
   account,
   activity,
-  sharePrice,
-  sparkdexPoolInfo,
-  upshiftStats,
+  vaults,
   loading,
   rates,
 }: YieldPositionCardProps) {
@@ -91,13 +87,9 @@ export function YieldPositionCard({
     )
   }
 
-  const currentValue = valueOfShares(
-    account.shares,
-    account.yieldTarget,
-    sharePrice,
-    sparkdexPoolInfo.tvl,
-    { tvl: upshiftStats.tvl },
-  )
+  // idle savings in CoinAI + what the user holds across the vaults
+  const currentValue = vaults ? account.shares + totalInvested(vaults) : null
+  const sharePrice = vaults ? vaults[account.yieldTarget].sharePrice : null
   const position = computeSavingsPosition(activity, currentValue)
   const earningsTone = position.earnings !== null && position.earnings > 0n ? 'gold' : 'muted'
   const history = savingsHistory(activity)
@@ -151,12 +143,12 @@ export function YieldPositionCard({
         )}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
           <span>
-            {t('yield.shares')}: <span className="tabular-nums">{fxrpToInput(account.shares)}</span>
+            {t('yield.shares')}: <span className="tabular-nums">{tokenToInput(account.shares)}</span>
           </span>
           <span>
             {t('yield.sharePrice')}:{' '}
             <span className="tabular-nums">
-              {sharePrice === null ? '-' : fxrpToInput(sharePrice)}
+              {sharePrice === null ? '-' : tokenToInput(sharePrice)}
             </span>
           </span>
         </div>
