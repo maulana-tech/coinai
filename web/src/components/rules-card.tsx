@@ -14,24 +14,23 @@ import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
 import { formatDate, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
-import type { CoinAIAccount, YieldTarget } from '@/lib/types'
+import { YIELD_TARGETS, type CoinAIAccount, type YieldTarget } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
+import { VAULT_LOGO } from '@/lib/yield'
 
 type RulesCardProps = {
   account: CoinAIAccount
 }
 
-const YIELD_SOURCES: { target: YieldTarget; logo: string; logoBackdrop?: string }[] = [
-  { target: 'sparkdex', logo: '/logos/sparkdex-icon.svg' },
-  { target: 'firelight', logo: '/logos/firelight-icon.svg' },
-  { target: 'upshift', logo: '/logos/upshift-icon.svg' },
-]
+const YIELD_SOURCES: { target: YieldTarget; logo: string; logoBackdrop?: string }[] = YIELD_TARGETS.map(
+  (target) => ({ target, logo: VAULT_LOGO[target] }),
+)
 
 const YIELD_SOURCE_NAME_KEY: Record<YieldTarget, MessageKey> = {
-  sparkdex: 'rules.yieldSourceSparkdexName',
-  firelight: 'rules.yieldSourceFirelightName',
-  upshift: 'rules.yieldSourceUpshiftName',
+  conservative: 'rules.yieldSourceConservativeName',
+  balanced: 'rules.yieldSourceBalancedName',
+  growth: 'rules.yieldSourceGrowthName',
 }
 
 type YieldSourceOptionProps = {
