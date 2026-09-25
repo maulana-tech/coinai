@@ -1,12 +1,9 @@
-import { useState, useEffect } from 'react'
 import { RefreshCwIcon } from 'lucide-react'
-import { getFxrpBalance } from '@/lib/fxrp'
 import { ConnectPrompt } from '@/components/connect-prompt'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
 import type { YieldTarget } from '@/lib/types'
 import { YieldDepositCard } from '@/components/yield-deposit-card'
-import { YieldDirectDepositCard } from '@/components/yield-direct-deposit-card'
 import { YieldPositionCard } from '@/components/yield-position-card'
 import { YieldSourcesCard } from '@/components/yield-sources-card'
 import { useAppState } from '@/lib/app-state'
@@ -18,69 +15,15 @@ import { useWallet } from '@/lib/wallet'
 export function YieldPage() {
   const { address } = useWallet()
   const { account, accountStatus, activity, rates, busy, runAction, refresh } = useAppState()
-  const { data, loading, refresh: refreshYield } = useYieldData()
+  const { vaults, loading, refresh: refreshYield } = useYieldData(address)
   const t = useT()
 
   if (!address) return <ConnectPrompt />
 
-  const tvl =
-    data.vaultStats.idle !== null && data.vaultStats.invested !== null
-      ? data.vaultStats.idle + data.vaultStats.invested
-      : null
-
-  const handleDeposit = async (args: {
-    shares: bigint
-    tokenOut: string
-    adapter: string
-    amountOutMin: bigint
-    deadline: bigint
-  }) => {
-    const result = await runAction(
-      'yield-deposit',
-      'success.yieldDeposited',
-      () =>
-        coinai.withdrawSavingsToAdapter(
-          address,
-          args.shares,
-          args.tokenOut,
-          args.adapter,
-          args.amountOutMin,
-          args.deadline,
-        ),
-    )
-    if (result) {
-      await refresh()
-      await refreshYield()
-    }
-  }
-
-  const [walletBalance, setWalletBalance] = useState(0n)
-  
-  useEffect(() => {
-    if (address) {
-      getFxrpBalance(address).then(setWalletBalance).catch(console.error)
-    }
-  }, [address, busy])
-
-  const handleDirectDeposit = async (args: {
-    shares: bigint
-    tokenOut: string
-    adapter: string
-    amountOutMin: bigint
-    deadline: bigint
-  }) => {
-    if (!address) return
-    const result = await runAction(
-      'yield-direct',
-      'success.yieldDeposited',
-      () =>
-        coinai.depositYieldDirect!(
-          args.shares,
-          args.tokenOut,
-          args.adapter,
-          args.amountOutMin,
-          args.deadline,
-        ),
+  const handleDeposit = async (amount: bigint) => {
+    if (!account) return
+    const result = await runAction('yield-deposit', 'success.yieldDeposited', () =>
+      coinai.investSavings(address, amount, account.yieldTarget),
     )
     if (result) {
       await refresh()
@@ -89,11 +32,8 @@ export function YieldPage() {
   }
 
   const handleSelectTarget = async (target: YieldTarget) => {
-    if (!address) return
-    const result = await runAction(
-      `target-${target}`,
-      'success.yieldTargetSaved',
-      () => coinai.setYieldTarget(address, target),
+    const result = await runAction(`target-${target}`, 'success.yieldTargetSaved', () =>
+      coinai.setYieldTarget(address, target),
     )
     if (result) {
       await refresh()
@@ -121,46 +61,28 @@ export function YieldPage() {
       <YieldPositionCard
         account={account}
         activity={activity}
-        sharePrice={data.sharePrice}
-        sparkdexPoolInfo={data.sparkdexPoolInfo}
-        upshiftStats={data.upshiftStats}
+        vaults={vaults}
         loading={accountStatus === 'loading'}
         rates={rates}
       />
       {account && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <YieldDepositCard
-            shares={account.shares}
-            yieldTarget={account.yieldTarget}
-            rates={rates}
-            onDeposit={handleDeposit}
-            busy={busy === 'yield-deposit'}
-            available={data.targetHealth[account.yieldTarget]}
-          />
-          <YieldDirectDepositCard
-            walletBalance={walletBalance}
-            yieldTarget={account.yieldTarget}
-            rates={rates}
-            onDirectDeposit={handleDirectDeposit}
-            busy={busy === 'yield-direct'}
-            available={data.targetHealth[account.yieldTarget]}
-          />
-        </div>
+        <YieldDepositCard
+          shares={account.shares}
+          yieldTarget={account.yieldTarget}
+          vaultAddress={vaults?.[account.yieldTarget].address || null}
+          rates={rates}
+          onDeposit={handleDeposit}
+          busy={busy === 'yield-deposit'}
+          available={vaults !== null}
+        />
       )}
       <YieldSourcesCard
-        sparkdexApy={data.sparkdexPoolInfo.apy}
-        sparkdexTvl={data.sparkdexPoolInfo.tvl}
-        firelightApy={null}
-        firelightTvl={tvl}
-        upshiftApy={data.upshiftStats.apy}
-        upshiftTvl={data.upshiftStats.tvl}
-        mainnetApy={data.mainnetApy}
+        vaults={vaults}
         loading={loading}
         rates={rates}
         selectedTarget={account?.yieldTarget}
         onSelectTarget={handleSelectTarget}
         busyTarget={busy?.startsWith('target-') ? (busy.replace('target-', '') as YieldTarget) : null}
-        targetHealth={data.targetHealth}
       />
     </section>
   )
