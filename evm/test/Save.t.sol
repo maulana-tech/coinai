@@ -52,6 +52,12 @@ contract CoinAITest is Test {
         assertEq(last, block.timestamp);
     }
 
+    function test_accountOf_defaultsForNewUser() public view {
+        CoinAI.Account memory acc = coinai.accountOf(address(0xBEEF));
+        assertEq(acc.splitBps, 2000);
+        assertEq(uint8(acc.yieldTarget), uint8(CoinAI.YieldTarget.Balanced));
+    }
+
     function test_withdrawSpend() public {
         _pay(1000);
         vm.prank(bob);
