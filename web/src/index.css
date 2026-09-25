@@ -1,0 +1,244 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-serif);
+  --font-sans: 'DM Sans', sans-serif;
+  --font-serif: 'Cormorant Garamond', serif;
+  --font-mono: 'Space Mono', monospace;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-gold: var(--gold);
+  --color-gold-ink: var(--gold-ink);
+  --color-growth: var(--growth);
+  --color-growth-ink: var(--growth-ink);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ─── Editorial color tokens ─── */
+:root {
+  /* Parchment / paper base */
+  --background: #eee8d8;
+  --foreground: #193d2d;
+  /* Cards */
+  --card: #f4ede0;
+  --card-foreground: #193d2d;
+  --popover: #f4ede0;
+  --popover-foreground: #193d2d;
+  /* Primary: deep forest green */
+  --primary: #1c4934;
+  --primary-foreground: #f2ecda;
+  --primary-ink: #1c4934;
+  /* Secondary: mid green */
+  --secondary: #3d7659;
+  --secondary-foreground: #f2ecda;
+  /* Muted */
+  --muted: #c9bf9f;
+  --muted-foreground: #526457;
+  /* Accent: gold */
+  --accent: #d5aa61;
+  --accent-foreground: #193d2d;
+  /* Destructive */
+  --destructive: #c73e1d;
+  /* Borders */
+  --border: #c9bfa5;
+  --input: #c9bfa5;
+  --ring: #1c4934;
+  /* Gold */
+  --gold: #d5aa61;
+  --gold-ink: #8f6414;
+  /* Growth */
+  --growth: #3d7659;
+  --growth-ink: #1c4934;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: #101c19;
+  --foreground: #eee8d8;
+  --card: #173f2d;
+  --card-foreground: #eee8d8;
+  --popover: #173f2d;
+  --popover-foreground: #eee8d8;
+  --primary: #3d7659;
+  --primary-foreground: #101c19;
+  --primary-ink: #b7d6bd;
+  --secondary: #5a9e7a;
+  --secondary-foreground: #101c19;
+  --muted: #1c4934;
+  --muted-foreground: #a8b8a6;
+  --accent: #d5aa61;
+  --accent-foreground: #101c19;
+  --destructive: #e05a3a;
+  --border: #2a5c44;
+  --input: #2a5c44;
+  --ring: #3d7659;
+  --gold: #d5aa61;
+  --gold-ink: #e4c17b;
+  --growth: #5a9e7a;
+  --growth-ink: #b7d6bd;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ─── Paper grain texture ─── */
+@utility paper-grain {
+  position: relative;
+}
+.paper-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.16;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23a)' opacity='.4'/%3E%3C/svg%3E");
+}
+
+/* ─── Section label pattern ─── */
+@utility section-label {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.23em;
+  text-transform: uppercase;
+  color: var(--secondary);
+}
+
+@keyframes liquid-shimmer {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+
+@utility animate-liquid-shimmer {
+  animation: liquid-shimmer 3.2s ease-in-out infinite;
+}
+
+@keyframes liquid-pulse-ring {
+  from {
+    transform: scale(0.6);
+    opacity: 0.45;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@utility animate-liquid-pulse-ring {
+  animation: liquid-pulse-ring 2.4s ease-out infinite;
+}
+
+@keyframes flow-line {
+  0% {
+    left: -10%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@utility animate-flow-line {
+  animation: flow-line 3.2s linear infinite;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-rise-in {
+  animation: rise-in 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-color: #eee8d8;
+  }
+  .dark body {
+    background-color: #101c19;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@keyframes glitch-anim-1 {
+  0% { clip-path: inset(20% 0 80% 0); transform: translate(-2px, 1px); }
+  20% { clip-path: inset(60% 0 10% 0); transform: translate(2px, -1px); }
+  40% { clip-path: inset(40% 0 50% 0); transform: translate(-2px, 2px); }
+  60% { clip-path: inset(80% 0 5% 0); transform: translate(2px, -2px); }
+  80% { clip-path: inset(10% 0 70% 0); transform: translate(-2px, -2px); }
+  100% { clip-path: inset(30% 0 50% 0); transform: translate(2px, 2px); }
+}
+
+@keyframes glitch-anim-2 {
+  0% { clip-path: inset(10% 0 60% 0); transform: translate(2px, -1px); }
+  20% { clip-path: inset(30% 0 20% 0); transform: translate(-2px, 2px); }
+  40% { clip-path: inset(70% 0 10% 0); transform: translate(2px, -2px); }
+  60% { clip-path: inset(20% 0 50% 0); transform: translate(-2px, 1px); }
+  80% { clip-path: inset(50% 0 30% 0); transform: translate(2px, 2px); }
+  100% { clip-path: inset(5% 0 80% 0); transform: translate(-2px, -1px); }
+}
+
+@utility animate-glitch-1 {
+  animation: glitch-anim-1 2.5s infinite linear alternate-reverse;
+}
+
+@utility animate-glitch-2 {
+  animation: glitch-anim-2 3s infinite linear alternate-reverse;
+}
