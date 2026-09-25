@@ -1,31 +1,35 @@
-# Smart Contracts
+# evm
 
-Solidity contracts for coinAI, deployed on Flare Coston2.
+Solidity contracts for coinAI on BNB Smart Chain Testnet (chain 97). Foundry, Solidity 0.8.28.
 
 ## Contracts
 
-| Contract | Description |
-|---|---|
-| `Save.sol` | Core savings contract — payment splitting, yield targets, withdrawals |
-| `VaultAdapter.sol` | Deposits FXRP into ERC-4626 vaults |
-| `SparkDexAdapter.sol` | Swaps FXRP via SparkDEX V3 |
-| `FxrpVault.sol` | Custom ERC-4626 vault for FXRP |
-| `ISparkDexRouter.sol` | SparkDEX V3 router interface |
+| File | Contract | Purpose |
+|---|---|---|
+| `src/Save.sol` | `CoinAI` | Payment split, spend/savings balances, time-lock, vault routing, AI agent delegation (`setAgent`, `agentSetSplit`, `agentInvest`), `AgentAction` audit events |
+| `src/SimpleVault.sol` | `SimpleVault` | Minimal ERC-4626 vault with APY/risk metadata; deployed 3× (Conservative, Balanced, Growth) |
+| `src/MockUSDT.sol` | `MockUSDT` | 6-decimal test stablecoin with a 24h-rate-limited `faucet()` |
 
-## Build & Test
+## Build & test
 
 ```bash
-git submodule update --init  # forge-std
+git submodule update --init   # forge-std
 ~/.foundry/bin/forge build
-~/.foundry/bin/forge test
+~/.foundry/bin/forge test     # 15 tests incl. agent guardrails
 ```
 
 ## Deploy
 
-See [docs/deployment.md](../docs/deployment.md) for deploy scripts and addresses.
+```bash
+cp .env.example .env          # BSC_TESTNET_RPC_URL, DEPLOYER_PRIVATE_KEY
+source .env
+~/.foundry/bin/forge script script/DeployAll.s.sol --rpc-url bsc_testnet --broadcast --private-key $DEPLOYER_PRIVATE_KEY
+```
 
-## Gotchas
+Deploys MockUSDT, the three vaults and CoinAI in one go and prints the addresses. Put them in `../deployments.json`, then see [../docs/deployment.md](../docs/deployment.md).
 
-- FXRP has **6 decimals** on Coston2 (not 18)
-- `forge-std` is a git submodule — run `git submodule update --init` after clone
-- Use `~/.foundry/bin/forge` (not bare `forge` — the npm `forge` package is ForgeCode, not Foundry)
+## Notes
+
+- Use `~/.foundry/bin/forge`; the npm `forge` package is a different tool.
+- `YieldTarget` order (Conservative=0, Balanced=1, Growth=2) is mirrored in `web/src/lib/types.ts` and `web/api/_lib/guard.ts`.
+- Vault addresses are immutable constructor args and CoinAI has no owner.
