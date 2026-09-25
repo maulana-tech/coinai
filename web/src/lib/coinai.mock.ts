@@ -1,10 +1,12 @@
-import type { CoinAIAccount, CoinAIService } from '@/lib/types'
+import type { AgentPolicy, CoinAIAccount, CoinAIService } from '@/lib/types'
 
 const LATENCY_MS = 800
 const DEFAULT_SPLIT_BPS = 2000
 const BPS_DENOMINATOR = 10_000n
 
 const accounts = new Map<string, CoinAIAccount>()
+const agents = new Map<string, AgentPolicy>()
+const NO_AGENT: AgentPolicy = { agent: null, minSplitBps: 0, maxSplitBps: 0, expiry: 0n }
 
 function delay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, LATENCY_MS))
@@ -13,7 +15,7 @@ function delay(): Promise<void> {
 function account(user: string): CoinAIAccount {
   let acc = accounts.get(user)
   if (!acc) {
-    acc = { splitBps: DEFAULT_SPLIT_BPS, spend: 0n, shares: 0n, lockUntil: 0n, yieldTarget: 'firelight' }
+    acc = { splitBps: DEFAULT_SPLIT_BPS, spend: 0n, shares: 0n, lockUntil: 0n, yieldTarget: 'balanced' }
     accounts.set(user, acc)
   }
   return acc
@@ -38,7 +40,7 @@ export const coinaiMock: CoinAIService = {
     await delay()
     const acc = account(to)
     const saved = (amount * BigInt(acc.splitBps)) / BPS_DENOMINATOR
-    acc.shares += saved // mock vault mints shares 1:1 with deposited USDC
+    acc.shares += saved // mock vault mints shares 1:1 with deposited tUSDT
     acc.spend += amount - saved
     return { hash: mockHash() }
   },
@@ -81,27 +83,31 @@ export const coinaiMock: CoinAIService = {
     return { hash: mockHash() }
   },
 
-  async withdrawSavingsToAdapter(user, shares, _tokenOut, _adapter, _amountOutMin, _deadline) {
+  async investSavings(user, amount, target) {
     await delay()
     const acc = account(user)
     if (acc.lockUntil > nowSeconds()) throw new Error('Error(Contract, #5)')
-    if (shares > acc.shares) throw new Error('Error(Contract, #4)')
-    acc.shares -= shares
-    return { amountIn: shares, amountOut: shares, hash: mockHash() }
+    if (amount > acc.shares) throw new Error('Error(Contract, #4)')
+    acc.shares -= amount
+    acc.yieldTarget = target
+    return { amountIn: amount, amountOut: amount, hash: mockHash() } // 1:1 vault shares in mock
   },
 
-  async depositYieldDirect(
-    amount: bigint,
-    _tokenOut: string,
-    _adapter: string,
-    _amountOutMin: bigint,
-    _deadline: bigint,
-  ) {
+  async getAgent(user) {
     await delay()
-    return {
-      amountIn: amount,
-      amountOut: (amount * 99n) / 100n,
-      hash: '0xmock' + Math.random().toString(16).slice(2),
-    }
+    return agents.get(user) ?? NO_AGENT
+  },
+
+  async setAgent(user, agent, minSplitBps, maxSplitBps, expiry) {
+    await delay()
+    if (minSplitBps > maxSplitBps || maxSplitBps > 10_000 || expiry <= nowSeconds()) throw new Error('Error(Contract, #13)')
+    agents.set(user, { agent, minSplitBps, maxSplitBps, expiry })
+    return { hash: mockHash() }
+  },
+
+  async revokeAgent(user) {
+    await delay()
+    agents.delete(user)
+    return { hash: mockHash() }
   },
 }
