@@ -3,33 +3,26 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatMoney, intlLocale, useT, type MessageKey } from '@/lib/i18n'
-import type { YieldTarget } from '@/lib/types'
+import { EXPLORER_CONTRACT_URL, explorerAddressUrl } from '@/lib/config'
+import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
+import { VAULT_LOGO, type Vaults } from '@/lib/yield'
 import type { FxRates } from '@/lib/rates'
 import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 
 type YieldSourcesCardProps = {
-  sparkdexApy: number | null
-  sparkdexTvl: bigint | null
-  firelightApy: number | null
-  firelightTvl: bigint | null
-  upshiftApy: number | null
-  upshiftTvl: bigint | null
-  mainnetApy: { sparkdex: number | null; firelight: number | null; upshift: number | null }
+  vaults: Vaults | null
   loading: boolean
   rates: FxRates
   selectedTarget?: YieldTarget
   onSelectTarget?: (target: YieldTarget) => void
   busyTarget?: YieldTarget | null
-  targetHealth?: { sparkdex: boolean; firelight: boolean; upshift: boolean }
 }
 
 type SourceRow = {
   key: string
   logo: string
-  // set only for logos that are a transparent, single-color glyph with no
-  // background of their own (Soroswap's icon); real backgrounded marks
-  // (DeFindex, Blend) fill the circle edge-to-edge instead
+  // set only for transparent single-color glyphs; logos with their own background fill the circle
   logoBackdrop?: string
   website: string
   name: MessageKey
@@ -39,9 +32,7 @@ type SourceRow = {
   apy: number | null
   tvl: bigint | null
   available: boolean
-  // A real rate from a live mainnet pool, purely for context on what real
-  // borrowing/trading demand looks like - never the user's own position.
-  mainnetApy: number | null
+  risk: MessageKey
 }
 
 function formatApy(value: number | null, locale: string): string {
@@ -70,66 +61,42 @@ function ProtocolLogo({ source }: { source: SourceRow }) {
   )
 }
 
+const SOURCE_KEYS: Record<YieldTarget, { name: MessageKey; route: MessageKey }> = {
+  conservative: { name: 'yield.sourceConservativeName', route: 'yield.sourceConservativeRoute' },
+  balanced: { name: 'yield.sourceBalancedName', route: 'yield.sourceBalancedRoute' },
+  growth: { name: 'yield.sourceGrowthName', route: 'yield.sourceGrowthRoute' },
+}
+
+const RISK_KEYS: MessageKey[] = ['yield.riskLow', 'yield.riskLow', 'yield.riskMedium', 'yield.riskHigh']
+
 export function YieldSourcesCard({
-  sparkdexApy,
-  sparkdexTvl,
-  firelightApy,
-  firelightTvl,
-  upshiftApy,
-  upshiftTvl,
-  mainnetApy,
+  vaults,
   loading,
   rates,
   selectedTarget,
   onSelectTarget,
   busyTarget,
-  targetHealth = { sparkdex: true, firelight: true, upshift: true },
 }: YieldSourcesCardProps) {
   const t = useT()
   const { locale, primaryCurrency } = useSettings()
   const intl = intlLocale(locale)
 
-  const sources: SourceRow[] = [
-    {
-      key: 'sparkdex',
-      logo: '/logos/sparkdex-icon.svg',
-      website: 'https://sparkdex.finance',
-      name: 'yield.sourceSparkdexName',
-      route: 'yield.sourceSparkdexRoute',
+  const sources: SourceRow[] = YIELD_TARGETS.map((target) => {
+    const vault = vaults?.[target]
+    return {
+      key: target,
+      logo: VAULT_LOGO[target],
+      website: vault?.address ? explorerAddressUrl(vault.address) : EXPLORER_CONTRACT_URL,
+      name: SOURCE_KEYS[target].name,
+      route: SOURCE_KEYS[target].route,
       badge: 'active',
-      target: 'sparkdex',
-      apy: sparkdexApy,
-      tvl: sparkdexTvl,
-      available: targetHealth.sparkdex,
-      mainnetApy: mainnetApy.sparkdex,
-    },
-    {
-      key: 'firelight',
-      logo: '/logos/firelight-icon.svg',
-      website: 'https://firelight.finance',
-      name: 'yield.sourceFirelightName',
-      route: 'yield.sourceFirelightRoute',
-      badge: 'active',
-      target: 'firelight',
-      apy: firelightApy,
-      tvl: firelightTvl,
-      available: targetHealth.firelight,
-      mainnetApy: mainnetApy.firelight,
-    },
-    {
-      key: 'upshift',
-      logo: '/logos/upshift-icon.svg',
-      website: 'https://upshift.finance',
-      name: 'yield.sourceUpshiftName',
-      route: 'yield.sourceUpshiftRoute',
-      badge: 'active',
-      target: 'upshift',
-      apy: upshiftApy,
-      tvl: upshiftTvl,
-      available: targetHealth.upshift,
-      mainnetApy: mainnetApy.upshift,
-    },
-  ]
+      target,
+      apy: vault?.apy ?? null,
+      tvl: vault?.tvl ?? null,
+      available: vaults !== null,
+      risk: RISK_KEYS[vault?.risk ?? 0] ?? 'yield.riskMedium',
+    }
+  })
 
   const bestApy = sources.reduce<number | null>(
     (best, source) =>
@@ -229,10 +196,8 @@ export function YieldSourcesCard({
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {t('yield.mainnetRefLabel')}{' '}
-                    <span className="font-medium tabular-nums text-foreground">
-                      {formatApy(source.mainnetApy, intl)}
-                    </span>
+                    {t('yield.riskLabel')}{' '}
+                    <span className="font-medium text-foreground">{t(source.risk)}</span>
                   </p>
                 </button>
               )
