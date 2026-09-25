@@ -112,7 +112,10 @@ contract CoinAI {
     function accountOf(address user) external view returns (Account memory out) {
         if (user == address(0)) revert InvalidAddress();
         out = _accounts[user];
-        if (!_initialized[user]) out.splitBps = DEFAULT_SPLIT_BPS;
+        if (!_initialized[user]) {
+            out.splitBps = DEFAULT_SPLIT_BPS;
+            out.yieldTarget = YieldTarget.Balanced;
+        }
     }
 
     function vaultOf(YieldTarget target) public view returns (address) {
