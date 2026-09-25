@@ -2,143 +2,88 @@
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) (for smart contracts)
-- EVM wallet (MetaMask, Rabby, etc.)
+- Node.js 20+ (24 recommended; the guard test runs `.ts` natively)
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) — use `~/.foundry/bin/forge` (the npm `forge` package is unrelated)
+- An EVM wallet (MetaMask, Rabby, …) for the real-chain flow
+- Optional: `npx vercel` to run the agent backend locally
 
-## Quick Start
-
-### 1. Clone & Setup
+## Quick start
 
 ```bash
-git clone https://github.com/0x1e30c3/save-main.git
-cd save-main
-git submodule update --init  # forge-std
+git clone https://github.com/maulana-tech/coinai.git
+cd coinai
+git submodule update --init          # forge-std
+
+# contracts
+cd evm && ~/.foundry/bin/forge test  # 15 tests
+
+# frontend in mock mode (no wallet, no contract)
+cd ../web && npm install && npm run dev   # http://localhost:5173
 ```
 
-### 2. Smart Contracts
+Mock mode is on whenever `VITE_COINAI_ADDRESS` is empty: `lib/coinai.mock.ts` keeps accounts in memory and vault data is static.
+
+## Full local stack (anvil)
+
+Run the real contracts on a local chain that pretends to be BSC Testnet (chain id 97):
 
 ```bash
+# 1. chain
+anvil --chain-id 97 --port 8547
+
+# 2. contracts (anvil's first default key)
 cd evm
-cp .env.example .env
-# Edit .env: set FLARE_RPC_URL and DEPLOYER_PRIVATE_KEY
+~/.foundry/bin/forge script script/DeployAll.s.sol --rpc-url http://127.0.0.1:8547 --broadcast \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
-# Build
-~/.foundry/bin/forge build
-
-# Test
-~/.foundry/bin/forge test
+# 3. app, pointed at anvil (addresses from the deploy output)
+cd ../web
+VITE_RPC_URL=http://127.0.0.1:8547 VITE_COINAI_ADDRESS=0x… VITE_TOKEN_ADDRESS=0x… \
+VITE_DEPLOY_BLOCK=0 VITE_AGENT_ADDRESS=0x… npm run dev
 ```
 
-### 3. Frontend
+Add the anvil network (RPC `http://127.0.0.1:8547`, chain id 97) to your wallet and import an anvil account to click through. Delete `evm/broadcast/DeployAll.s.sol/97/` afterwards so local runs aren't mistaken for real deploys.
+
+## Agent backend locally
+
+`/api/*` only exists under Vercel's runtime, so use:
 
 ```bash
 cd web
-cp .env.example .env
-# VITE_COINAI_ADDRESS is pre-filled with deployed contract
-
-npm install
-npm run dev
+cp .env.example .env    # fill the server-side block (OpenRouter, agent key, Upstash, secrets)
+npx vercel dev          # SPA + /api on one port
 ```
 
-Opens at [http://localhost:5173/](http://localhost:5173/).
+Without OpenRouter/Upstash keys the Agent page still renders; runs and chat return an error toast.
 
-### 4. Mock Mode
+## Commands
 
-Set `VITE_COINAI_ADDRESS=""` in `web/.env` to use in-memory mock. This lets you develop the UI without a wallet or deployed contract.
-
-## Project Structure
-
-```
-your-save/
-├── evm/                    # Smart contracts
-│   ├── src/
-│   │   ├── Save.sol        # Core coinAI contract
-│   │   ├── VaultAdapter.sol    # ERC-4626 vault adapter
-│   │   ├── SparkDexAdapter.sol # SparkDEX swap adapter
-│   │   ├── FxrpVault.sol       # Custom ERC-4626 vault
-│   │   └── ISparkDexRouter.sol # SparkDEX interface
-│   ├── script/             # Deployment scripts
-│   ├── test/               # Contract tests
-│   ├── lib/forge-std/      # Foundry standard library
-│   ├── foundry.toml        # Foundry config
-│   └── .env                # Deployer keys
-├── web/                    # Frontend
-│   ├── src/
-│   │   ├── lib/            # Core logic, hooks, services
-│   │   ├── components/     # React components
-│   │   ├── pages/          # Route pages
-│   │   └── App.tsx         # Router
-│   ├── public/             # Static assets
-│   ├── vercel.json         # Vercel SPA routing
-│   └── package.json
-├── docs/                   # Documentation
-├── deployments.json        # Deployed addresses
-├── AGENTS.md               # AI agent instructions
-├── CONTEXT.md              # Hackathon context
-└── push.sh                 # Git push helper
-```
-
-## Key Commands
-
-| Command | Description |
+| Command | What |
 |---|---|
-| `cd evm && forge build` | Compile contracts |
-| `cd evm && forge test` | Run contract tests |
-| `cd web && npm run dev` | Start dev server |
-| `cd web && npm run build` | Type-check + production build |
-| `cd web && npm run lint` | Run linter |
-| `./push.sh "message"` | Auto-commit & push (one commit per file) |
+| `cd evm && ~/.foundry/bin/forge test` | Contract tests (split, lock, vault routing, agent guardrails) |
+| `cd web && npm run build` | Typecheck `src/` + `api/` (`tsc -b`) and build |
+| `cd web && npm run lint` | oxlint |
+| `cd web && node --test api/_lib/guard.test.ts` | Guardrail unit tests |
+| `./push.sh "message"` | Commit one file per commit and push |
 
-## Git Workflow
+## Gotchas
 
-The project uses `push.sh` which commits one file per commit with conventional-commit types inferred from filename. Don't batch commits.
+- **Token decimals** — tUSDT is 6 decimals (`TOKEN_DECIMALS` in `web/src/lib/token.ts`, `MockUSDT.sol`). Keep them in sync.
+- **Vault order** — `YieldTarget` in `Save.sol` (Conservative=0, Balanced=1, Growth=2) must match `YIELD_TARGETS` in `web/src/lib/types.ts` and `TARGETS` in `web/api/_lib/guard.ts`.
+- **Contract errors** — adding a Solidity `error` means updating `ERROR_CODES` in `lib/coinai.evm.ts`, `lib/errors.ts`, and `lib/i18n.tsx` (en, id, zh).
+- **i18n** — every user-facing string goes into all three locale blocks in `lib/i18n.tsx`. Landing copy lives under `lp.*`.
+- **Chain** — write paths call `getEthersSigner()`, which asks the wallet to switch to (or add) chain 97 first.
+- **Activity history** — public BSC RPCs cap `eth_getLogs`, so `lib/activity.ts` reads newest-first in 5,000-block chunks, at most 10 chunks, starting from `VITE_DEPLOY_BLOCK`. Older history needs an indexer.
+- **`api/` imports** use `.js` extensions (NodeNext); the guard test imports `./guard.ts` directly and runs under Node's type stripping.
+- **Vercel Hobby** — cron runs at most once a day; use "Run agent now" in demos.
+- **HMR** — editing `lib/app-state.tsx` during `vite dev` can blank the page ("useAppState must be used within AppStateProvider"); reload.
 
-## Key Gotchas
+## Manual test flow
 
-### FXRP Decimals
-FXRP has **6 decimals** on Coston2 (not 18). This is set in `web/src/lib/fxrp.ts` as `FXRP_DECIMALS = 6`. All formatting, parsing, and display uses this.
-
-### Yield Target Mapping
-The enum order in `Save.sol` (SparkDEX=0, Firelight=1, Upshift=2) must match `toYieldTarget/fromYieldTarget` in `coinai.evm.ts`. Changing either breaks the frontend.
-
-### Contract Errors
-Custom Solidity errors are mapped to `Error(Contract, #N)` strings via `ERROR_CODES` in `coinai.evm.ts`. Adding a contract error requires updating:
-1. `Save.sol` — error declaration
-2. `coinai.evm.ts` — ERROR_CODES mapping
-3. `errors.ts` — error pattern matching
-4. `i18n.tsx` — translations (EN, ID, ZH)
-
-### Chain Enforcement
-All write paths check `chainId === 114` before sending transactions. If the wallet is on a different chain, the user gets a "Wrong network" error.
-
-### Vercel SPA Routing
-`web/vercel.json` handles client-side route rewrites. The pattern excludes static assets (`/assets/`, `/logos/`, `/favicon.ico`) to avoid serving index.html for real files.
-
-## Testing
-
-### Contract Tests
-```bash
-cd evm && forge test
-```
-
-### Manual Testing Flow
-1. Connect wallet on Coston2
-2. Get FXRP from faucet (`/app/faucet`)
-3. Create payment link (`/app/link`)
-4. Pay to the link from another wallet
-5. Check savings balance on dashboard
-6. Deposit savings to yield (`/app/yield`)
-7. Verify vault shares on explorer
-
-## Debugging
-
-The frontend has console logging in the deposit flow:
-- `[depositYieldDirect] START` — input parameters
-- `[depositYieldDirect] chainId` — network check
-- `[depositYieldDirect] VAULT path` / `SPARKDEX path` — which adapter is used
-- `[depositYieldDirect] staticCall OK/FAILED` — simulation result
-- `[depositYieldDirect] TX success` — transaction hash
-- `[runAction] ERROR` — full error object for debugging
-
-Check browser DevTools (F12 → Console) to trace issues.
+1. Connect a wallet on BSC Testnet → `/app/faucet`: get tBNB (link) and mint tUSDT.
+2. From another wallet, pay your link (`/app/link` → `/pay/:address`).
+3. Dashboard shows the split; `/app/yield` shows idle savings and the three vaults.
+4. Move some savings into a vault; confirm shares in your wallet / BscScan.
+5. `/app/agent`: enable the agent (split range + duration) → **Run agent now**.
+6. Check the steps, the report, and the decision log (reason + BscScan link).
+7. Connect Telegram and/or email → send `/report` to the bot.
