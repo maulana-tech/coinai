@@ -1,231 +1,140 @@
 # Architecture
 
-## System Overview
-
-coinAI is a programmable savings splitter on Flare Coston2. It automatically routes a portion of every incoming FXRP payment into yield-earning positions.
-
-### Core Components
+coinAI has three parts: an on-chain contract that splits payments and enforces the agent's limits, a React app, and an off-chain AI agent team that runs as Vercel Functions next to the app.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend (React + Vite + TS)          │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │
-│  │ Dashboard │ │ Pay Page │ │ Yield    │ │ Rules/Settings │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └───────┬───────┘  │
-│       │             │            │                │          │
-│       └─────────────┴────────────┴────────────────┘          │
-│                           │ ethers.js v6                      │
-└───────────────────────────┼───────────────────────────────────┘
-                            │
-┌───────────────────────────┼───────────────────────────────────┐
-│                    Flare Coston2 (Chain ID 114)                │
-│                           │                                    │
-│  ┌────────────────────────▼────────────────────────────────┐  │
-│  │                    coinAI Contract                     │  │
-│  │  • pay(from, to, amount) — split into spend + savings   │  │
-│  │  • withdrawSpend() — pull spendable balance             │  │
-│  │  • withdrawSavings() — pull savings as FXRP             │  │
-│  │  • withdrawSavingsToAdapter() — route to yield protocol │  │
-│  │  • setSplit() / setLock() / setYieldTarget()            │  │
-│  └──────┬──────────────────────────────┬───────────────────┘  │
-│         │                              │                       │
-│  ┌──────▼───────┐            ┌─────────▼──────────┐           │
-│  │ VaultAdapter │            │ SparkDexAdapter     │           │
-│  │ (ERC-4626)   │            │ (SparkDEX V3 swap)  │           │
-│  └──────┬───────┘            └─────────┬──────────┘           │
-│         │                              │                       │
-│  ┌──────▼───────┐            ┌─────────▼──────────┐           │
-│  │  FxrpVault   │            │  SparkDEX Router    │           │
-│  │  (ERC-4626)  │            │  (Uniswap V3 fork)  │           │
-│  └──────────────┘            └────────────────────┘           │
-│                                                               │
-│  ┌──────────────────────────────────────────────────────┐     │
-│  │                    FXRP Token                         │     │
-│  │  (FAssets wrapped XRP, 6 decimals on Coston2)        │     │
-│  └──────────────────────────────────────────────────────┘     │
-└───────────────────────────────────────────────────────────────┘
+┌──────────────────────────── web/ (Vercel) ─────────────────────────────┐
+│  src/  React SPA                        api/  Vercel Functions          │
+│  ├─ landing, dashboard, yield,          ├─ auth.ts        wallet login  │
+│  │  rules, withdraw, activity,          ├─ agent/run.ts   run the team  │
+│  │  faucet, payment links               ├─ agent/chat.ts  chat advisor  │
+│  ├─ /app/agent  permission, team, run,  ├─ agent/history  last 20 runs  │
+│  │  chat, notifications, decisions      ├─ agent/profile  investor prof │
+│  └─ /app/agent/:role  one page per agent├─ market.ts      market + read │
+│                                         ├─ subscribe.ts   TG / email    │
+│        │ wagmi + ethers                 ├─ telegram.ts    bot webhook   │
+│        │                                └─ cron/daily.ts  daily report  │
+└────────┼──────────────────────────────────────────┬────────────────────┘
+         │ user txs                                  │ agent txs (agent wallet)
+┌────────▼───────────────── BNB Smart Chain Testnet (97) ─────────────────┐
+│  CoinAI (Save.sol)                                                      │
+│   pay · withdrawSpend · withdrawSavings · investSavings                 │
+│   setSplit · setLock · setYieldTarget                                   │
+│   setAgent · revokeAgent · agentSetSplit · agentInvest                  │
+│        │ approve + deposit(amount, user)                                │
+│   ┌────▼─────────────┬───────────────────┬───────────────────┐          │
+│   │ SimpleVault      │ SimpleVault       │ SimpleVault       │          │
+│   │ Conservative 3%  │ Balanced 6%       │ Growth 12%        │          │
+│   └──────────────────┴───────────────────┴───────────────────┘          │
+│  MockUSDT (tUSDT, 6 decimals, faucet)                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+         ▲ reads                                    OpenRouter (LLMs) · Upstash Redis
+         └──── api/ ─────────────────────────────── Telegram Bot API · Gmail SMTP
 ```
 
-## Smart Contracts
+## Smart contracts (`evm/src`)
 
-### coinAI (Core)
+### CoinAI (`Save.sol`)
 
-The main savings contract. Holds FXRP from payments and manages per-user accounts.
+Holds tUSDT received through `pay()` and keeps one account per user:
 
-**Account struct:**
 ```solidity
 struct Account {
-    uint16 splitBps;      // Savings split in basis points (default 2000 = 20%)
-    uint128 spend;        // Spendable balance
-    uint128 shares;       // Savings shares (1:1 with FXRP)
-    uint64 lockUntil;     // Lock timestamp
-    YieldTarget yieldTarget; // 0=SparkDEX, 1=Firelight, 2=Upshift
+    uint16  splitBps;     // % of each payment that goes to savings (default 2000 = 20%)
+    uint128 spend;        // spendable balance
+    uint128 shares;       // idle savings, 1:1 with tUSDT
+    uint64  lockUntil;    // savings time-lock
+    YieldTarget yieldTarget; // Conservative=0, Balanced=1 (default), Growth=2
 }
+struct Stats { uint128 totalReceived; uint64 paymentCount; uint64 lastPaymentAt; } // for agents
+struct AgentPolicy { address agent; uint16 minSplitBps; uint16 maxSplitBps; uint64 expiry; }
 ```
 
-**Key functions:**
-- `pay(from, to, amount)` — Transfers FXRP from payer, splits into spend/savings
-- `withdrawSpend(user, amount)` — Withdraws spendable balance to wallet
-- `withdrawSavings(user, shares)` — Withdraws savings as FXRP
-- `withdrawSavingsToAdapter(shares, tokenIn, tokenOut, adapter, amountOutMin, deadline)` — Routes savings through an adapter to a yield protocol
-- `setSplit(user, bps)` — Sets savings percentage (0-10000 bps)
-- `setLock(user, until)` — Sets withdrawal lock date
-- `setYieldTarget(user, target)` — Sets yield protocol (SparkDEX/Firelight/Upshift)
+| Function | Caller | What it does |
+|---|---|---|
+| `pay(from, to, amount)` | payer | Pulls tUSDT, splits into `spend` / `shares` of `to`, updates `statsOf[to]` |
+| `withdrawSpend`, `withdrawSavings` | user | Withdraw to own wallet (savings respect `lockUntil`) |
+| `investSavings(amount, target)` | user | Moves idle savings into a vault; vault shares minted to the user |
+| `setSplit`, `setLock`, `setYieldTarget` | user | Rules |
+| `setAgent(agent, minBps, maxBps, expiry)` / `revokeAgent()` | user | Delegate to (or remove) the AI agent |
+| `agentSetSplit(user, bps, reason)` | agent | Only within `[minBps, maxBps]` and before `expiry` |
+| `agentInvest(user, amount, target, reason)` | agent | Same as `investSavings`, shares go to the **user** |
 
-### VaultAdapter
+Design choices:
+- **Vault addresses are immutable** (constructor args) and there is **no owner/admin**. The agent can only route into those three vaults.
+- **No path sends funds to the agent** or any third party. Vault shares are always minted to the user; withdrawals only go to `msg.sender == user`.
+- Every agent call emits `AgentAction(user, agent, action, reason)` so decisions are auditable on BscScan.
+- Custom errors (`NotAgent`, `InvalidPolicy`, `SplitOutOfRange`, …) are mapped to localized messages in the app.
 
-Deposits FXRP into ERC-4626 vaults (Firelight, Upshift, or custom FxrpVault).
+### SimpleVault (`SimpleVault.sol`)
 
-```solidity
-function routeSavings(
-    address tokenIn,    // FXRP address
-    uint256 amountIn,   // Amount to deposit
-    address vault,      // ERC-4626 vault address
-    address to,         // Recipient of vault shares
-    uint256 amountOutMin, // Minimum shares (slippage)
-    uint256 deadline    // Unused (vault deposits settle instantly)
-) external returns (uint256[] memory amounts);
+Minimal ERC-4626 vault, deployed three times with `apyBps` / `riskLevel` metadata. Share price tracks the vault's token balance. On testnet the APY is display metadata only; on mainnet these slots would route into live strategies (Venus, Lista, PancakeSwap).
+
+### MockUSDT (`MockUSDT.sol`)
+
+6-decimal ERC-20 with a public `faucet()` (1,000 tUSDT per address per 24h).
+
+## Agent team (`web/api`)
+
+See [ai-agents.md](ai-agents.md) for the full design. In short:
+
+```
+Chainlink (BSC) + Binance ─ Market Analyst ─┐
+readUserState + profile ─┬─ Savings Strategist ─────┐
+                         └─ Investment Strategist ──┴─ guard.ts ─ Risk Officer ─ executor ─ Reporter
 ```
 
-### SparkDexAdapter
+- Orchestration is code (`api/_lib/swarm.ts`), not an LLM supervisor.
+- `guard.ts` mirrors the contract rules so bad proposals are dropped before gas is spent; the contract is still the real enforcement.
+- State for the agents comes from one `accountOf` / `statsOf` / `agentOf` read — no log scanning.
+- Run history, subscriptions and rate limits live in Upstash Redis.
 
-Swaps FXRP into another token via SparkDEX V3 (Uniswap V3 fork).
+## Frontend (`web/src`)
 
-```solidity
-function routeSavings(
-    address tokenIn,
-    uint256 amountIn,
-    address tokenOut,
-    address to,
-    uint256 amountOutMin,
-    uint256 deadline
-) external returns (uint256[] memory amounts);
-```
+| Area | Files |
+|---|---|
+| Chain + config | `lib/config.ts`, `lib/wagmi.ts` (BSC Testnet), `lib/ethers-wagmi.ts` (switch/add chain before signing) |
+| Contract service | `lib/coinai.ts` → `coinai.evm.ts` or `coinai.mock.ts` (mock when `VITE_COINAI_ADDRESS` is empty) |
+| Token | `lib/token.ts` (tUSDT, faucet), `lib/format.ts` |
+| Vault data | `lib/yield.ts`, `lib/use-yield-data.ts` — APY, risk, TVL, user position read from the vaults |
+| Activity | `lib/activity.ts` — event history, newest-first in 5k-block chunks from `VITE_DEPLOY_BLOCK` |
+| Agent | `lib/agent-api.ts` (wallet-signed login + bearer token), `pages/agent.tsx`, `pages/agent-role.tsx`, `lib/agent-roles.ts` |
+| Market | `web/shared/market.ts` (Chainlink on BSC + Binance candles, shared with `api/`), `lib/use-market.ts`, `components/market-board.tsx` |
+| Global state | `lib/app-state.tsx` — account, activity, `runAction` (tx + toast + refresh) |
+| i18n | `lib/i18n.tsx` — en / id / zh |
 
-### FxrpVault (Custom ERC-4626)
+### Routes
 
-A minimal ERC-4626 vault that accepts FXRP deposits and mints shares 1:1.
+| Path | Page |
+|---|---|
+| `/` | Landing (film-led, `pages/landing.tsx`) |
+| `/pay/:address` | Pay someone through their link |
+| `/app` | Dashboard |
+| `/app/agent` | AI agent: permission, team, run now, chat, notifications, decision log |
+| `/app/agent/:role` | One page per agent: market, savings, investment, guardrails, risk, executor, reporter |
+| `/app/yield` | Vault position, move savings into a vault, vault list |
+| `/app/rules` | Split, vault preference, time-lock |
+| `/app/withdraw`, `/app/activity`, `/app/link`, `/app/faucet`, `/app/settings` | — |
 
-- `deposit(assets, receiver)` — Deposit FXRP, receive vault shares
-- `redeem(shares, receiver, owner)` — Burn shares, receive FXRP
-- `maxDeposit()` — Returns `type(uint256).max` (unlimited deposits)
-- `asset()` — Returns FXRP address
-- `convertToShares(assets)` — 1:1 ratio (no yield yet, pure vault)
-
-## Payment Flow
+## Payment → agent flow
 
 ```mermaid
 sequenceDiagram
     participant Payer
-    participant coinAI
-    participant FXRP
-    participant VaultAdapter
-    participant FxrpVault
-
-    Payer->>FXRP: approve(coinAI, amount)
-    Payer->>coinAI: pay(from, to, amount)
-    coinAI->>FXRP: transferFrom(payer, contract, amount)
-    coinAI->>coinAI: split: spend += amount * (1 - splitBps/10000)
-    coinAI->>coinAI: shares += amount * splitBps / 10000
-
-    Note over coinAI: Savings now available as shares
-
-    Payer->>coinAI: withdrawSavingsToAdapter(shares, ...)
-    coinAI->>VaultAdapter: transfer FXRP + call routeSavings()
-    VaultAdapter->>FXRP: approve(FxrpVault, amount)
-    VaultAdapter->>FxrpVault: deposit(amount, user)
-    FxrpVault->>FXRP: transferFrom(adapter, vault, amount)
-    FxrpVault->>FxrpVault: mint shares to user
-```
-
-## Direct Deposit Flow (Bypass coinAI)
-
-Users can also deposit FXRP directly to the vault from their wallet, without going through the coinAI contract:
-
-```mermaid
-sequenceDiagram
+    participant CoinAI
+    participant Team as Agent team (api/)
+    participant Vault
     participant User
-    participant FxrpVault
-    participant FXRP
 
-    User->>FXRP: approve(FxrpVault, amount)
-    User->>FxrpVault: deposit(amount, user)
-    FxrpVault->>FXRP: transferFrom(user, vault, amount)
-    FxrpVault->>FxrpVault: mint shares to user
+    Payer->>CoinAI: pay(payer, user, 100 tUSDT)
+    CoinAI->>CoinAI: spend += 80, shares += 20, statsOf[user]++
+    Note over Team: cron (daily) or "Run agent now"
+    Team->>CoinAI: accountOf / statsOf / agentOf
+    Team->>Team: strategists → guard → risk officer
+    Team->>CoinAI: agentSetSplit(user, 3000, "steady income…")
+    Team->>CoinAI: agentInvest(user, 8, Conservative, "moderate profile, neutral market…")
+    Team->>CoinAI: agentInvest(user, 12, Balanced, …)
+    CoinAI->>Vault: deposit(amount, user)
+    Vault-->>User: vault shares
+    Team-->>User: report on Telegram / email
 ```
-
-This is handled by `depositYieldDirect()` in the frontend, which:
-1. Normalizes addresses (EIP-55 checksum)
-2. Approves FXRP to the vault
-3. Calls `vault.deposit.staticCall()` to simulate
-4. Sends the real transaction with `gasLimit: 500_000`
-
-## Yield Targets
-
-| Target | Type | Contract | Status |
-|---|---|---|---|
-| **Firelight** | ERC-4626 Vault | `0x780780D122f075ada1Fa86A18dE2e0763B2526Ec` | ✅ Working |
-| **SparkDEX** | DEX Swap | Via SparkDexAdapter | ⚠️ No valid tokenOut on testnet |
-| **Upshift** | ERC-4626 Vault | `0x24c1a47cD5e8473b64EAB2a94515a196E10C7C81` | ⚠️ Not accepting deposits |
-
-## Frontend Architecture
-
-```
-web/src/
-├── lib/
-│   ├── config.ts          # Contract addresses, RPC URLs, chain config
-│   ├── coinai.ts        # Service entry (mock vs evm)
-│   ├── coinai.evm.ts    # EVM contract interactions
-│   ├── coinai.mock.ts   # In-memory mock for dev
-│   ├── fxrp.ts            # FXRP token utilities
-│   ├── app-state.tsx      # Global state (account, activity, rates)
-│   ├── errors.ts          # Error code mapping
-│   ├── i18n.tsx           # Translations (EN, ID, ZH)
-│   ├── yield.ts           # Yield calculations, share price, vault stats
-│   ├── use-yield-data.ts  # Yield data hook
-│   ├── activity.ts        # On-chain event parsing
-│   ├── rates.ts           # FX rates
-│   └── wallet.tsx         # Wallet connection hook
-├── components/
-│   ├── balance-hero.tsx   # Main balance display (includes vault balance)
-│   ├── yield-deposit-card.tsx      # Deposit savings to yield
-│   ├── yield-direct-deposit-card.tsx # Direct wallet deposit
-│   ├── yield-sources-card.tsx      # Yield protocol selector
-│   ├── yield-position-card.tsx     # Savings position display
-│   └── ui/               # shadcn-style UI components
-├── pages/
-│   ├── dashboard.tsx      # Main dashboard
-│   ├── pay.tsx            # Payment link page
-│   ├── yield.tsx          # Yield management page
-│   ├── faucet.tsx         # FXRP faucet
-│   ├── rules.tsx          # Split/lock/yield settings
-│   ├── withdraw.tsx       # Withdraw spend/savings
-│   ├── activity.tsx       # Transaction history
-│   └── settings.tsx       # App settings
-└── App.tsx                # Router setup
-```
-
-## State Management
-
-The app uses a custom `AppStateProvider` context:
-
-- `account` — coinAI account data (split, spend, shares, lock, yieldTarget)
-- `activity` — Parsed on-chain events (payments, withdrawals, settings changes)
-- `rates` — FX rates for display
-- `busy` — Currently running action key (prevents double-submits)
-- `runAction()` — Executes a contract call with error handling, toast notifications, and 2s RPC sync delay
-
-## Error Handling
-
-All contract errors are mapped to user-friendly i18n keys via `errors.ts`:
-
-```
-Contract error → Error(Contract, #N) → errors.ts lookup → i18n key → Toast message
-```
-
-Custom patterns handle:
-- Wallet rejection/cancellation
-- Wrong network
-- Vault not accepting deposits
-- Insufficient allowance
-- Transaction reverted
