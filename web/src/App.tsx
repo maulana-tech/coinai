@@ -10,6 +10,8 @@ import { AppStateProvider } from '@/lib/app-state'
 import { SettingsProvider } from '@/lib/settings'
 import { config } from '@/lib/wagmi'
 import { ActivityPage } from '@/pages/activity'
+import { AgentPage } from '@/pages/agent'
+import { AgentRolePage } from '@/pages/agent-role'
 import { Dashboard } from '@/pages/dashboard'
 import { FaucetPage } from '@/pages/faucet'
 import { Landing } from '@/pages/landing'
@@ -61,6 +63,8 @@ export function App() {
                       <Route path="activity" element={<ActivityPage />} />
                       <Route path="faucet" element={<FaucetPage />} />
                       <Route path="yield" element={<YieldPage />} />
+                      <Route path="agent" element={<AgentPage />} />
+                      <Route path="agent/:role" element={<AgentRolePage />} />
                       <Route path="withdraw" element={<WithdrawPage />} />
                       <Route path="rules" element={<RulesPage />} />
                       <Route path="link" element={<PaymentLinkPage />} />
