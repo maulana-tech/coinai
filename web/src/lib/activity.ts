@@ -1,9 +1,10 @@
-import { Contract, JsonRpcProvider, type EventLog } from 'ethers'
-import { CONTRACT_ID, EVM_RPC_URL } from '@/lib/config'
+import { Contract, EventLog, JsonRpcProvider, zeroPadValue } from 'ethers'
+import { CONTRACT_ID, DEPLOY_BLOCK, EVM_RPC_URL } from '@/lib/config'
+import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
 
 export type ActivityItem = {
   id: string
-  kind: 'pay' | 'wd_spend' | 'wd_save' | 'split' | 'lock'
+  kind: 'pay' | 'wd_spend' | 'wd_save' | 'invest' | 'split' | 'lock' | 'agent'
   at: Date
   txHash: string
   from?: string
@@ -12,6 +13,10 @@ export type ActivityItem = {
   shares?: bigint
   bps?: number
   until?: bigint
+  target?: YieldTarget
+  // agent rows: what the AI did and why (merged from the sibling SplitSet/SavingsInvested log)
+  agentAction?: 'split' | 'invest'
+  reason?: string
 }
 
 const SAVE_EVM_ABI = [
@@ -20,9 +25,15 @@ const SAVE_EVM_ABI = [
   'event SavingsWithdrawn(address indexed user,uint256 shares,uint256 amountOut)',
   'event SplitSet(address indexed user,uint16 bps)',
   'event LockSet(address indexed user,uint64 until)',
+  'event SavingsInvested(address indexed user,uint8 target,address vault,uint256 amount,uint256 vaultShares)',
+  'event AgentAction(address indexed user,address indexed agent,uint8 action,string reason)',
 ] as const
 
-const BLOCK_LOOKBACK = 5_000
+// Public BSC RPCs cap eth_getLogs ranges, so history is read newest-first in chunks.
+// ponytail: capped at MAX_CHUNKS (~50k blocks, 1-2 days on BSC testnet); index events
+// server-side (or via a subgraph) if older history matters.
+const CHUNK = 5_000
+const MAX_CHUNKS = 10
 const blockTimestampCache = new Map<number, number>()
 
 async function getBlockTimestamp(provider: JsonRpcProvider, blockNumber: number): Promise<number> {
@@ -68,9 +79,36 @@ function decodeLogs(logs: EventLog[], user: string): ActivityItem[] {
       out.push({ ...base, kind: 'split', bps: Number(log.args.bps) })
     } else if (name === 'LockSet') {
       out.push({ ...base, kind: 'lock', until: BigInt(log.args.until) })
+    } else if (name === 'SavingsInvested') {
+      out.push({
+        ...base,
+        kind: 'invest',
+        amount: BigInt(log.args.amount),
+        target: YIELD_TARGETS[Number(log.args.target)],
+      })
+    } else if (name === 'AgentAction') {
+      out.push({
+        ...base,
+        kind: 'agent',
+        agentAction: Number(log.args.action) === 0 ? 'split' : 'invest',
+        reason: String(log.args.reason),
+      })
     }
   }
-  return out
+  return mergeAgentActions(out)
+}
+
+// An agent tx emits SplitSet/SavingsInvested plus AgentAction; show one row with the reason.
+function mergeAgentActions(items: ActivityItem[]): ActivityItem[] {
+  const agentTx = new Map(items.filter((i) => i.kind === 'agent').map((i) => [i.txHash, i]))
+  return items.filter((item) => {
+    const agent = agentTx.get(item.txHash)
+    if (!agent || item === agent) return true
+    if (item.kind === 'split') agent.bps = item.bps
+    else if (item.kind === 'invest') Object.assign(agent, { amount: item.amount, target: item.target })
+    else return true
+    return false
+  })
 }
 
 async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
@@ -79,32 +117,30 @@ async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
   const c = new Contract(CONTRACT_ID, SAVE_EVM_ABI, provider)
 
   const latest = await provider.getBlockNumber()
-  const fromBlock = Math.max(latest - BLOCK_LOOKBACK, 0)
+  const floor = Math.max(DEPLOY_BLOCK, latest - CHUNK * MAX_CHUNKS, 0)
 
-  // Build all five filter topics up-front and fire as ONE batched getLogs call
-  // (the RPC supports up to N topics in a single request, which is much faster
-  // than five parallel calls because we skip the per-call handshake overhead).
-  const topics: (string | null)[][] = [
-    [c.filters.PaymentRouted(null, user).fragment.topicHash],
-    [c.filters.SpendWithdrawn(user).fragment.topicHash],
-    [c.filters.SavingsWithdrawn(user).fragment.topicHash],
-    [c.filters.SplitSet(user).fragment.topicHash],
-    [c.filters.LockSet(user).fragment.topicHash],
+  // PaymentRouted indexes the recipient as topic2; every other event indexes the user as topic1.
+  const userTopic = zeroPadValue(user, 32)
+  const own = ['SpendWithdrawn', 'SavingsWithdrawn', 'SplitSet', 'LockSet', 'SavingsInvested', 'AgentAction'].map(
+    (name) => c.interface.getEvent(name)!.topicHash,
+  )
+  const queries = (fromBlock: number, toBlock: number) => [
+    provider.getLogs({ address: CONTRACT_ID, fromBlock, toBlock, topics: [c.interface.getEvent('PaymentRouted')!.topicHash, null, userTopic] }),
+    provider.getLogs({ address: CONTRACT_ID, fromBlock, toBlock, topics: [own, userTopic] }),
   ]
 
-  const rawLogs = await Promise.all(
-    topics.map((t) =>
-      provider.getLogs({ address: CONTRACT_ID, topics: t, fromBlock, toBlock: latest }),
-    ),
-  )
+  const ranges: [number, number][] = []
+  for (let to = latest; to >= floor; to -= CHUNK) ranges.push([Math.max(to - CHUNK + 1, floor), to])
+  const rawLogs = (await Promise.all(ranges.flatMap(([from, to]) => queries(from, to)))).flat()
+  // getLogs returns plain Logs; parse them back into EventLogs so decodeLogs can read args
+  const parsedLogs = rawLogs.map((log) => new EventLog(log, c.interface, c.interface.parseLog(log)!.fragment))
 
   // Pre-warm block timestamps for every unique block we just touched in parallel
-  const uniqueBlocks = Array.from(new Set(rawLogs.flat().map((l) => l.blockNumber)))
+  const uniqueBlocks = Array.from(new Set(parsedLogs.map((l) => l.blockNumber)))
   await Promise.all(uniqueBlocks.map((b) => getBlockTimestamp(provider, b)))
 
   // Decode using cached timestamps (no extra RPC calls needed)
-  const allLogs = rawLogs.flat() as EventLog[]
-  const decoded = decodeLogs(allLogs, user)
+  const decoded = decodeLogs(parsedLogs, user)
 
   return decoded
     .filter((item): item is ActivityItem => item !== null)
@@ -115,11 +151,12 @@ const inflight = new Map<string, Promise<ActivityItem[]>>()
 const cache = new Map<string, { ts: number; items: ActivityItem[] }>()
 const CACHE_MS = 30_000
 
-export async function fetchActivity(user: string): Promise<ActivityItem[]> {
+// `fresh` skips the short cache, for refreshes right after a tx (the cache would still hold pre-tx logs).
+export async function fetchActivity(user: string, fresh = false): Promise<ActivityItem[]> {
   const key = user.toLowerCase()
   const now = Date.now()
   const cached = cache.get(key)
-  if (cached && now - cached.ts < CACHE_MS) return cached.items
+  if (!fresh && cached && now - cached.ts < CACHE_MS) return cached.items
   const pending = inflight.get(key)
   if (pending) return pending
   const p = fetchEvmActivity(key)
