@@ -6,7 +6,7 @@ coinAI runs on **BNB Smart Chain Testnet** (chain ID 97). A deploy has three par
 2. **Web and agent backend** (`web/`): the Vite SPA plus Vercel Functions in `web/api/`
 3. **External services**: OpenRouter, Upstash Redis, Telegram bot, and Gmail
 
-> ⚠️ **Status:** the contracts and the agent backend are ready for BSC Testnet. The frontend (`web/src`) **has not been migrated yet** and still points at Flare Coston2. The `VITE_*` values in section 3 apply once that migration is done (Phase 2 in `docs/plan-bnb-ai-agent.md`).
+> **Status:** contracts, agent backend and frontend all target BSC Testnet. Nothing is deployed yet; the app runs in mock mode until `VITE_COINAI_ADDRESS` is set.
 
 ---
 
@@ -102,12 +102,13 @@ Write the addresses into `deployments.json` (the source of truth), then fill in 
 ### Telegram bot
 1. Chat with **@BotFather** → `/newbot` → save the **token** and **username** (without `@`).
 2. Generate a webhook secret: `openssl rand -hex 32`.
-3. **After the web is deployed** (section 4), register the webhook:
+3. **After the web is deployed** (section 4), register the webhook and the command menu:
    ```bash
-   curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=<APP_URL>/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>"
-   # check:
-   curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo"
+   cd web
+   APP_URL=https://<your-app>.vercel.app ./scripts/setup-telegram.sh   # reads the token/secret from web/.env
    ```
+   The script sets the webhook (`/api/telegram`, with the secret), the `/market /run /report /reset /stop /help` menu and the bot description, then prints `getWebhookInfo`.
+4. Users link their wallet from the app (AI Agent → Daily report & reminders → Connect Telegram). After that they can chat with coinAI in Telegram exactly like on the website.
 
 ### Gmail (daily email reports)
 1. The Google account must have **2-Step Verification** turned on.
@@ -125,9 +126,13 @@ Everything is set in **Vercel → Project → Settings → Environment Variables
 ### Frontend (`VITE_*`, shipped to the browser)
 
 ```env
-VITE_COINAI_ADDRESS=0x...          # CoinAI on BSC Testnet
-VITE_FXRP_ADDRESS=0x...            # tUSDT address (name kept until the frontend migration)
+VITE_COINAI_ADDRESS=0x...          # CoinAI on BSC Testnet (empty = in-memory mock mode)
+VITE_TOKEN_ADDRESS=0x...           # MockUSDT (tUSDT)
+VITE_AGENT_ADDRESS=0x...           # public address of the agent wallet (AGENT_PRIVATE_KEY)
+VITE_DEPLOY_BLOCK=12345678         # CoinAI deploy block; activity history is read from here
 ```
+
+Vault addresses are read from `CoinAI.vaultOf()`, so they aren't configured.
 
 > Never put secrets in a `VITE_*` variable. Everything with that prefix is readable in the browser.
 
@@ -193,12 +198,12 @@ curl -i $APP/api/cron/daily
 curl -H "Authorization: Bearer $CRON_SECRET" $APP/api/cron/daily
 ```
 
-End-to-end flow in the app (after the frontend migration):
+End-to-end flow in the app:
 1. Connect wallet → Faucet: claim tBNB (link) and mint tUSDT.
 2. Pay yourself or another account through the payment link.
 3. Agent page → enable the agent (split range + duration) → **Run agent now**.
 4. Check the decision log: every action has a reason and a BscScan link (`AgentAction` event).
-5. Notifications → connect Telegram (press **Start** in the bot) and/or Gmail → send `/report` in Telegram.
+5. Notifications → connect Telegram (press **Start** in the bot) and/or Gmail → in Telegram, ask "how are my savings?", then try `/market` and `/report`.
 
 ## API endpoints
 
@@ -209,7 +214,9 @@ End-to-end flow in the app (after the frontend migration):
 | POST | `/api/agent/chat` | Bearer | Chat Advisor (30 messages / 10 minutes) |
 | GET | `/api/agent/history` | Bearer | The last 20 runs |
 | GET/POST/DELETE | `/api/subscribe` | Bearer | Manage Telegram / Gmail notifications |
-| POST | `/api/telegram` | webhook secret | Telegram bot (`/start`, `/report`, `/stop`) |
+| POST | `/api/telegram` | webhook secret | Telegram bot: chat + `/market /run /report /reset /stop` |
+| GET | `/api/market` | — | Market snapshot (Chainlink + Binance) + Market Analyst read |
+| GET/POST | `/api/agent/profile` | Bearer | Investor profile |
 | GET | `/api/cron/daily` | `CRON_SECRET` | Daily report + reminders |
 
 ## Troubleshooting
