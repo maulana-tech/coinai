@@ -62,7 +62,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
     const [accountResult, activityResult] = await Promise.allSettled([
       coinai.getAccount(addr),
-      fetchActivity(addr),
+      fetchActivity(addr, !initial),
     ])
     if (addressRef.current !== addr) return
     if (accountResult.status === 'fulfilled') {
