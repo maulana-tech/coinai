@@ -66,7 +66,7 @@ export function PaymentLinkPage() {
               <Label htmlFor="paylink-amount">{t('paylink.amountLabel')}</Label>
               <div className="relative">
                 <TokenIcon
-                  token="fxrp"
+                  token="usdt"
                   size={26}
                   className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
                 />
