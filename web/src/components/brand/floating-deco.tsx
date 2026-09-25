@@ -134,7 +134,7 @@ function HeartBlob({ uid }: DecoProps) {
   )
 }
 
-function FxrpCoin({ uid }: DecoProps) {
+function UsdtCoin({ uid }: DecoProps) {
   const rim = `${uid}-rim`
   const face = `${uid}-face`
   return (
@@ -163,7 +163,7 @@ function FxrpCoin({ uid }: DecoProps) {
           fontWeight="700"
           fill="#8f6414"
         >
-          FXRP
+          USDT
         </text>
         <ellipse cx="22" cy="16" rx="9" ry="4.2" fill="#fff" opacity="0.55" transform="rotate(-28 22 16)" />
       </g>
@@ -185,15 +185,15 @@ type Placement = {
 }
 
 const PLACEMENTS: Placement[] = [
-  { obj: FxrpCoin, side: 'left', top: '12%', left: '6%', size: 96, rotate: -12, depth: 22, duration: 7, delay: 0 },
+  { obj: UsdtCoin, side: 'left', top: '12%', left: '6%', size: 96, rotate: -12, depth: 22, duration: 7, delay: 0 },
   { obj: Sparkle, side: 'left', top: '34%', left: '14%', size: 44, rotate: 8, depth: 28, duration: 5.5, delay: 0.8 },
   { obj: LoopBlob, side: 'left', top: '52%', left: '4%', size: 110, rotate: 6, depth: 12, duration: 8, delay: 0.4 },
   { obj: CoinStack, side: 'left', top: '76%', left: '12%', size: 76, rotate: -8, depth: 18, duration: 6.5, delay: 1.2 },
-  { obj: FxrpCoin, side: 'left', top: '90%', left: '5%', size: 46, rotate: 10, depth: 24, duration: 6.2, delay: 0.7 },
+  { obj: UsdtCoin, side: 'left', top: '90%', left: '5%', size: 46, rotate: 10, depth: 24, duration: 6.2, delay: 0.7 },
   { obj: HeartBlob, side: 'right', top: '10%', right: '10%', size: 72, rotate: 10, depth: 20, duration: 7.5, delay: 0.6 },
-  { obj: FxrpCoin, side: 'right', top: '24%', right: '18%', size: 50, rotate: -8, depth: 16, duration: 7.2, delay: 0.9 },
+  { obj: UsdtCoin, side: 'right', top: '24%', right: '18%', size: 50, rotate: -8, depth: 16, duration: 7.2, delay: 0.9 },
   { obj: SoftArrow, side: 'right', top: '36%', right: '4%', size: 88, rotate: 4, depth: 10, duration: 8.5, delay: 0.2 },
-  { obj: FxrpCoin, side: 'right', top: '60%', right: '14%', size: 52, rotate: 14, depth: 26, duration: 5, delay: 1 },
+  { obj: UsdtCoin, side: 'right', top: '60%', right: '14%', size: 52, rotate: 14, depth: 26, duration: 5, delay: 1 },
   { obj: Sparkle, side: 'right', top: '80%', right: '7%', size: 40, rotate: -10, depth: 24, duration: 6, delay: 0.3 },
 ]
 
@@ -203,13 +203,13 @@ const PLACEMENTS: Placement[] = [
 const PLACEMENTS_ALT: Placement[] = [
   { obj: CoinStack, side: 'left', top: '6%', left: '17%', size: 60, rotate: 7, depth: 14, duration: 7.6, delay: 0.3 },
   { obj: LoopBlob, side: 'left', top: '18%', left: '8%', size: 84, rotate: 15, depth: 18, duration: 6.8, delay: 0.1 },
-  { obj: FxrpCoin, side: 'left', top: '42%', left: '4%', size: 58, rotate: -10, depth: 26, duration: 5.8, delay: 0.9 },
+  { obj: UsdtCoin, side: 'left', top: '42%', left: '4%', size: 58, rotate: -10, depth: 26, duration: 5.8, delay: 0.9 },
   { obj: Sparkle, side: 'left', top: '66%', left: '15%', size: 40, rotate: -6, depth: 22, duration: 5, delay: 0.5 },
-  { obj: FxrpCoin, side: 'left', top: '88%', left: '9%', size: 52, rotate: 12, depth: 16, duration: 7.4, delay: 1.1 },
-  { obj: FxrpCoin, side: 'right', top: '14%', right: '8%', size: 88, rotate: -14, depth: 20, duration: 7, delay: 0.4 },
+  { obj: UsdtCoin, side: 'left', top: '88%', left: '9%', size: 52, rotate: 12, depth: 16, duration: 7.4, delay: 1.1 },
+  { obj: UsdtCoin, side: 'right', top: '14%', right: '8%', size: 88, rotate: -14, depth: 20, duration: 7, delay: 0.4 },
   { obj: SoftArrow, side: 'right', top: '38%', right: '17%', size: 72, rotate: -6, depth: 12, duration: 8, delay: 0 },
   { obj: HeartBlob, side: 'right', top: '58%', right: '5%', size: 64, rotate: 8, depth: 24, duration: 6.3, delay: 1 },
-  { obj: FxrpCoin, side: 'right', top: '80%', right: '15%', size: 46, rotate: 10, depth: 28, duration: 6.6, delay: 0.6 },
+  { obj: UsdtCoin, side: 'right', top: '80%', right: '15%', size: 46, rotate: 10, depth: 28, duration: 6.6, delay: 0.6 },
   { obj: Sparkle, side: 'right', top: '93%', right: '22%', size: 36, rotate: -12, depth: 30, duration: 5.4, delay: 0.7 },
 ]
 
