@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
-import { parseFxrp, fxrpToInput } from '@/lib/format'
+import { parseToken, tokenToInput } from '@/lib/format'
 import { formatDate, useT } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
 import type { CoinAIAccount } from '@/lib/types'
@@ -32,7 +32,7 @@ export function WithdrawCard({ account }: WithdrawCardProps) {
 
   const parseAmount = (raw: string): bigint | null => {
     try {
-      const amount = parseFxrp(raw)
+      const amount = parseToken(raw)
       if (amount <= 0n) throw new Error('invalid amount')
       return amount
     } catch {
@@ -74,7 +74,7 @@ export function WithdrawCard({ account }: WithdrawCardProps) {
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <TokenIcon
-                  token="fxrp"
+                  token="usdt"
                   size={26}
                   className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
                 />
@@ -90,7 +90,7 @@ export function WithdrawCard({ account }: WithdrawCardProps) {
               <Button
                 variant="outline"
                 disabled={anyBusy}
-                onClick={() => setSpendValue(fxrpToInput(account.spend))}
+                onClick={() => setSpendValue(tokenToInput(account.spend))}
               >
                 {t('withdraw.max')}
               </Button>
@@ -116,7 +116,7 @@ export function WithdrawCard({ account }: WithdrawCardProps) {
               <Button
                 variant="outline"
                 disabled={anyBusy || locked}
-                onClick={() => setSavingsValue(fxrpToInput(account.shares))}
+                onClick={() => setSavingsValue(tokenToInput(account.shares))}
               >
                 {t('withdraw.max')}
               </Button>
