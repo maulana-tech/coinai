@@ -14,7 +14,7 @@ import { isValidRecipientAddress } from '@/lib/address'
 import { coinai } from '@/lib/coinai'
 import { explorerTxUrl } from '@/lib/config'
 import { errorKey } from '@/lib/errors'
-import { parseFxrp, shortHex } from '@/lib/format'
+import { parseToken, shortHex } from '@/lib/format'
 import { formatMoney, useT } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
 import { useScrollLock } from '@/lib/use-scroll-lock'
@@ -58,7 +58,7 @@ function PayCard({ recipient }: { recipient: string }) {
   const [value, setValue] = useState(() => {
     const preset = (searchParams.get('amount') ?? '').trim()
     try {
-      return parseFxrp(preset) > 0n ? preset : ''
+      return parseToken(preset) > 0n ? preset : ''
     } catch {
       return ''
     }
@@ -94,7 +94,7 @@ function PayCard({ recipient }: { recipient: string }) {
   const handlePay = async () => {
     let parsed: bigint
     try {
-      parsed = parseFxrp(value)
+      parsed = parseToken(value)
       if (parsed <= 0n) throw new Error('invalid amount')
     } catch {
       toast.error(t('errors.invalidAmount'))
@@ -116,8 +116,8 @@ function PayCard({ recipient }: { recipient: string }) {
           </span>
           <p className="text-xl font-semibold tracking-tight">{t('pay.successTitle')}</p>
           <p className="flex items-center gap-2 text-2xl font-semibold tracking-tight tabular-nums">
-            <TokenIcon token="fxrp" size={36} />
-            {formatMoney(paid.amount, 'fxrp', rates, locale)}
+            <TokenIcon token="usdt" size={36} />
+            {formatMoney(paid.amount, 'usdt', rates, locale)}
           </p>
           <p className="text-sm text-muted-foreground">
             {t('pay.successBody', { name: displayName })}
@@ -161,7 +161,7 @@ function PayCard({ recipient }: { recipient: string }) {
       <CardContent className="space-y-3">
         <div className="relative">
           <TokenIcon
-            token="fxrp"
+            token="usdt"
             size={36}
             className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
           />
