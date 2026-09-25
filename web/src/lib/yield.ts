@@ -1,126 +1,68 @@
-import { JsonRpcProvider } from 'ethers'
-import { FXRP_SCALE } from '@/lib/fxrp'
+import { Contract, JsonRpcProvider } from 'ethers'
+import { COINAI_ABI } from '@/lib/coinai.evm'
+import { COINAI_ADDRESS, CONTRACT_ID, RPC_URL } from '@/lib/config'
 import type { ActivityItem } from '@/lib/activity'
-import type { YieldTarget } from '@/lib/types'
-import {
-  CONTRACT_ID,
-  FIRELIGHT_VAULT,
-  FLARE_RPC_URL,
-  SPARKDEX_ROUTER,
-  UPSHIFT_VAULT,
-} from '@/lib/config'
+import { TOKEN_SCALE } from '@/lib/token'
+import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
 
-// Flare Coston2 yield protocol constants
-export { FXRP_SCALE } // FXRP has 6 decimals on Coston2
-
-export type TargetHealth = Record<YieldTarget, boolean>
-
-async function vaultAcceptsDeposits(address: string): Promise<boolean> {
-  try {
-    const provider = new JsonRpcProvider(FLARE_RPC_URL)
-    return (await provider.getCode(address)) !== '0x'
-  } catch {
-    return false
-  }
+// The three SimpleVaults behind CoinAI (evm/src/SimpleVault.sol). APY is on-chain metadata:
+// testnet has no real yield, mainnet would route to Venus / Lista / PancakeSwap.
+export type VaultInfo = {
+  target: YieldTarget
+  address: string
+  apy: number // 0.06 = 6%
+  risk: number // 1 low, 2 medium, 3 high
+  tvl: bigint
+  sharePrice: bigint // tUSDT per 1 vault share (6 decimals)
+  position: bigint // the user's holding in this vault, in tUSDT
 }
 
-async function hasCode(address: string): Promise<boolean> {
-  try {
-    const provider = new JsonRpcProvider(FLARE_RPC_URL)
-    return (await provider.getCode(address)) !== '0x'
-  } catch {
-    return false
-  }
+export type Vaults = Record<YieldTarget, VaultInfo>
+
+export const VAULT_LOGO: Record<YieldTarget, string> = {
+  conservative: '/logos/conservative.svg',
+  balanced: '/logos/balanced.svg',
+  growth: '/logos/growth.svg',
 }
 
-// Probes the Coston2 chain to see which yield targets can actually take a
-// deposit today. Broken deployments (wrong addresses, non-ERC-4626 proxies,
-// missing output tokens) come back as false so the UI can block them early
-// instead of failing mid-deposit with a generic error.
-export async function getTargetHealth(): Promise<TargetHealth> {
-  if (CONTRACT_ID === '') return { sparkdex: true, firelight: true, upshift: true }
-  const [sparkdex, firelight, upshift] = await Promise.all([
-    hasCode(SPARKDEX_ROUTER),
-    vaultAcceptsDeposits(FIRELIGHT_VAULT),
-    vaultAcceptsDeposits(UPSHIFT_VAULT),
-  ])
-  return { sparkdex, firelight, upshift }
+const VAULT_ABI = [
+  'function apyBps() view returns (uint16)',
+  'function riskLevel() view returns (uint8)',
+  'function totalAssets() view returns (uint256)',
+  'function balanceOf(address) view returns (uint256)',
+  'function convertToAssets(uint256) view returns (uint256)',
+]
+
+const MOCK_VAULTS: Vaults = {
+  conservative: { target: 'conservative', address: '', apy: 0.03, risk: 1, tvl: 2_500_000_000n, sharePrice: TOKEN_SCALE, position: 0n },
+  balanced: { target: 'balanced', address: '', apy: 0.06, risk: 2, tvl: 4_200_000_000n, sharePrice: TOKEN_SCALE, position: 0n },
+  growth: { target: 'growth', address: '', apy: 0.12, risk: 3, tvl: 1_300_000_000n, sharePrice: TOKEN_SCALE, position: 0n },
 }
 
-export async function getSharePrice(): Promise<bigint | null> {
-  return FXRP_SCALE // mock 1.0 FXRP per share
+export async function getVaults(user: string | null): Promise<Vaults> {
+  if (CONTRACT_ID === '') return MOCK_VAULTS
+  const provider = new JsonRpcProvider(RPC_URL)
+  const coinai = new Contract(COINAI_ADDRESS, COINAI_ABI, provider)
+  const list = await Promise.all(
+    YIELD_TARGETS.map(async (target, i): Promise<VaultInfo> => {
+      const address = (await coinai.vaultOf(i)) as string
+      const v = new Contract(address, VAULT_ABI, provider)
+      const [apyBps, risk, tvl, sharePrice, shares] = await Promise.all([
+        v.apyBps(),
+        v.riskLevel(),
+        v.totalAssets(),
+        v.convertToAssets(TOKEN_SCALE),
+        user ? v.balanceOf(user) : 0n,
+      ])
+      const position = BigInt(shares) === 0n ? 0n : BigInt(await v.convertToAssets(shares))
+      return { target, address, apy: Number(apyBps) / 10_000, risk: Number(risk), tvl: BigInt(tvl), sharePrice: BigInt(sharePrice), position }
+    }),
+  )
+  return Object.fromEntries(list.map((v) => [v.target, v])) as Vaults
 }
 
-export type VaultStats = {
-  totalSupply: bigint | null
-  idle: bigint | null
-  invested: bigint | null
-}
-
-export async function getFirelightVaultStats(): Promise<VaultStats> {
-  return {
-    totalSupply: 5_000_000_000n, // 5000 FXRP
-    idle: 1_000_000_000n, // 1000 FXRP
-    invested: 4_000_000_000n, // 4000 FXRP
-  }
-}
-
-export type SparkDexPoolInfo = {
-  apy: number | null
-  tvl: bigint | null
-  feeRate: bigint | null
-}
-
-export async function getSparkDexPoolInfo(): Promise<SparkDexPoolInfo> {
-  return {
-    apy: 0.125, // mock 12.5% APY
-    tvl: 12_500_000_000_000_000_000_000n, // 12500 FXRP
-    feeRate: 3000n, // 0.3%
-  }
-}
-
-export async function getSparkDexMainnetReferenceApy(): Promise<number | null> {
-  return 0.142 // mock 14.2% APY
-}
-
-export async function getFirelightMainnetReferenceApy(): Promise<number | null> {
-  return 0.085 // mock 8.5% APY
-}
-
-export type UpshiftStats = {
-  apy: number | null
-  tvl: bigint | null
-}
-
-export async function getUpshiftStats(): Promise<UpshiftStats> {
-  return {
-    apy: 0.095, // mock 9.5% APY
-    tvl: 8_400_000_000_000_000_000_000n, // 8400 FXRP
-  }
-}
-
-export async function getUpshiftMainnetReferenceApy(): Promise<number | null> {
-  return 0.102 // mock 10.2% APY
-}
-
-export function valueOfShares(
-  shares: bigint,
-  target: YieldTarget,
-  sharePrice: bigint | null,
-  _sparkdexTvl: bigint | null,
-  upshiftStats?: { tvl: bigint | null },
-): bigint | null {
-  if (target === 'sparkdex') {
-    if (sharePrice === null) return null
-    return (shares * sharePrice) / FXRP_SCALE
-  }
-  if (target === 'upshift') {
-    const tvl = upshiftStats?.tvl ?? null
-    if (tvl === null || sharePrice === null) return null
-    return (shares * sharePrice) / FXRP_SCALE
-  }
-  if (sharePrice === null) return null
-  return (shares * sharePrice) / FXRP_SCALE
+export function totalInvested(vaults: Vaults | null): bigint {
+  return vaults ? YIELD_TARGETS.reduce((sum, t) => sum + vaults[t].position, 0n) : 0n
 }
 
 export type SavingsPosition = {
