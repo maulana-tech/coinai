@@ -8,13 +8,24 @@ export type Subscription = { email?: string; telegramChatId?: number; locale: Lo
 export const getSub = (user: string) => kv.get<Subscription>(`sub:${user}`)
 export const setSub = (user: string, sub: Subscription) => kv.set(`sub:${user}`, sub)
 
-export async function sendTelegram(chatId: number, text: string) {
-  const res = await fetch(`https://api.telegram.org/bot${env('TELEGRAM_BOT_TOKEN')}/sendMessage`, {
+async function telegram(method: string, payload: object) {
+  const res = await fetch(`https://api.telegram.org/bot${env('TELEGRAM_BOT_TOKEN')}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify(payload),
   })
-  if (!res.ok) throw new Error(`telegram ${res.status}: ${await res.text()}`)
+  if (!res.ok) throw new Error(`telegram ${method} ${res.status}: ${await res.text()}`)
+}
+
+const TELEGRAM_MAX = 4096
+
+export function sendTelegram(chatId: number, text: string) {
+  return telegram('sendMessage', { chat_id: chatId, text: text.slice(0, TELEGRAM_MAX), disable_web_page_preview: true })
+}
+
+/** Shows "typing…" in the chat for ~5s while the agents think. */
+export function sendTyping(chatId: number) {
+  return telegram('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {})
 }
 
 // Gmail SMTP with an App Password (Google Account → Security → App passwords).
