@@ -1,4 +1,6 @@
-export type YieldTarget = 'sparkdex' | 'firelight' | 'upshift'
+// Order matches the YieldTarget enum in evm/src/Save.sol (Conservative=0, Balanced=1, Growth=2).
+export const YIELD_TARGETS = ['conservative', 'balanced', 'growth'] as const
+export type YieldTarget = (typeof YIELD_TARGETS)[number]
 
 export type YieldDepositResult = {
   amountIn: bigint
@@ -14,6 +16,14 @@ export type CoinAIAccount = {
   yieldTarget: YieldTarget
 }
 
+// agent === null when the user hasn't authorized one (or revoked it)
+export type AgentPolicy = {
+  agent: string | null
+  minSplitBps: number
+  maxSplitBps: number
+  expiry: bigint
+}
+
 export type TxResult = { hash: string }
 export type WithdrawSavingsResult = { amount: bigint; hash: string }
 
@@ -22,22 +32,11 @@ export interface CoinAIService {
   pay(from: string, to: string, amount: bigint): Promise<TxResult>
   withdrawSpend(user: string, amount: bigint): Promise<TxResult>
   withdrawSavings(user: string, shares: bigint): Promise<WithdrawSavingsResult>
-  withdrawSavingsToAdapter(
-    user: string,
-    shares: bigint,
-    tokenOut: string,
-    adapter: string,
-    amountOutMin: bigint,
-    deadline: bigint,
-  ): Promise<YieldDepositResult>
+  investSavings(user: string, amount: bigint, target: YieldTarget): Promise<YieldDepositResult>
   setSplit(user: string, bps: number): Promise<TxResult>
   setLock(user: string, until: bigint): Promise<TxResult>
   setYieldTarget(user: string, target: YieldTarget): Promise<TxResult>
-  depositYieldDirect?(
-    amount: bigint,
-    tokenOut: string,
-    adapter: string,
-    amountOutMin: bigint,
-    deadline: bigint,
-  ): Promise<YieldDepositResult>
+  getAgent(user: string): Promise<AgentPolicy>
+  setAgent(user: string, agent: string, minSplitBps: number, maxSplitBps: number, expiry: bigint): Promise<TxResult>
+  revokeAgent(user: string): Promise<TxResult>
 }
