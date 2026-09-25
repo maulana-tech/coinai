@@ -1,17 +1,12 @@
 import { useT, type MessageKey } from '@/lib/i18n'
 import type { YieldTarget } from '@/lib/types'
 import { cn } from '@/lib/utils'
-
-const SOURCE_LOGO: Record<YieldTarget, string> = {
-  sparkdex: '/logos/sparkdex-icon.svg',
-  firelight: '/logos/firelight-icon.svg',
-  upshift: '/logos/upshift-icon.svg',
-}
+import { VAULT_LOGO } from '@/lib/yield'
 
 const SOURCE_NAME_KEY: Record<YieldTarget, MessageKey> = {
-  sparkdex: 'rules.yieldSourceSparkdexName',
-  firelight: 'rules.yieldSourceFirelightName',
-  upshift: 'rules.yieldSourceUpshiftName',
+  conservative: 'rules.yieldSourceConservativeName',
+  balanced: 'rules.yieldSourceBalancedName',
+  growth: 'rules.yieldSourceGrowthName',
 }
 
 type YieldRouteBadgeProps = {
@@ -19,10 +14,7 @@ type YieldRouteBadgeProps = {
   className?: string
 }
 
-// Shows the account's current yield source. Deliberately shows the CURRENT target only,
-// never a per-transaction historical one: pay/wd_save events don't carry which protocol
-// was active at the time, and set_yield_target only allows switching at a zero balance -
-// fabricating a per-row protocol would be a guess dressed up as data.
+// Shows the account's current vault preference (the CURRENT target only, not per transaction).
 export function YieldRouteBadge({ target, className }: YieldRouteBadgeProps) {
   const t = useT()
   const name = t(SOURCE_NAME_KEY[target])
@@ -37,9 +29,9 @@ export function YieldRouteBadge({ target, className }: YieldRouteBadgeProps) {
         className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-card ring-1 ring-border"
       >
         <img
-          src={SOURCE_LOGO[target]}
+          src={VAULT_LOGO[target]}
           alt=""
-          className="h-[60%] w-[60%] object-contain"
+          className="h-full w-full object-cover"
         />
       </span>
       <span className="truncate text-xs text-muted-foreground">
