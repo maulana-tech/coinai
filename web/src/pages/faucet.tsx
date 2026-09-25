@@ -11,8 +11,8 @@ import { ConnectPrompt } from '@/components/connect-prompt'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FLARE_EXPLORER_URL, FXRP_ADDRESS } from '@/lib/config'
-import { FXRP_DECIMALS } from '@/lib/fxrp'
+import { EXPLORER_URL, TOKEN_ADDRESS } from '@/lib/config'
+import { TOKEN_DECIMALS } from '@/lib/token'
 import { useT } from '@/lib/i18n'
 import { useFaucet } from '@/lib/use-faucet'
 import { useWallet } from '@/lib/wallet'
@@ -30,14 +30,15 @@ function formatUnits(wei: bigint | null, decimals: number): string {
     return frac ? `0.${frac}` : '0'
   }
   const intPart = s.slice(0, s.length - decimals)
-  const fracPart = s.slice(s.length - decimals).replace(/0+$/, '')
+  const fracPart = s.slice(s.length - decimals, s.length - decimals + 4).replace(/0+$/, '')
   return fracPart ? `${intPart}.${fracPart}` : intPart
 }
 
 export function FaucetPage() {
   const t = useT()
   const { address } = useWallet()
-  const { faucetBusy, balances, error, hasFunds, runFaucet, refreshBalances } = useFaucet()
+  const { faucetBusy, balances, error, hasFunds, runFaucet, mintBusy, mintAvailableAt, mintTokens, refreshBalances } =
+    useFaucet()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -48,8 +49,9 @@ export function FaucetPage() {
 
   if (!address) return <ConnectPrompt />
 
-  const explorerUrl = `${FLARE_EXPLORER_URL}/address/${address}`
-  const fxrpExplorerUrl = `${FLARE_EXPLORER_URL}/token/${FXRP_ADDRESS}?a=${address}`
+  const explorerUrl = `${EXPLORER_URL}/address/${address}`
+  const tokenExplorerUrl = `${EXPLORER_URL}/token/${TOKEN_ADDRESS}?a=${address}`
+  const mintCoolingDown = mintAvailableAt * 1000 > Date.now()
 
   return (
     <div className="mx-auto max-w-xl space-y-5">
@@ -82,40 +84,40 @@ export function FaucetPage() {
         <Card className="rounded-2xl shadow-none">
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t('faucet.c2flr')}
+              {t('faucet.bnb')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {balances ? (
-              <p className="text-2xl font-semibold">{formatUnits(balances.c2flr, 18)} C2FLR</p>
+              <p className="text-2xl font-semibold">{formatUnits(balances.bnb, 18)} tBNB</p>
             ) : (
               <Skeleton className="h-8 w-32" />
             )}
-            <p className="mt-1 text-xs text-muted-foreground">{t('faucet.c2flrCaption')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('faucet.bnbCaption')}</p>
           </CardContent>
         </Card>
 
         <Card className="rounded-2xl shadow-none">
           <CardHeader className="pb-2">
             <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t('faucet.fxrp')}
+              {t('faucet.usdt')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {balances ? (
-              <p className="text-2xl font-semibold">{formatUnits(balances.fxrp, FXRP_DECIMALS)} FXRP</p>
+              <p className="text-2xl font-semibold">{formatUnits(balances.usdt, TOKEN_DECIMALS)} tUSDT</p>
             ) : (
               <Skeleton className="h-8 w-32" />
             )}
-            <p className="mt-1 text-xs text-muted-foreground">{t('faucet.fxrpCaption')}</p>
-            {balances && balances.fxrp === 0n && (
+            <p className="mt-1 text-xs text-muted-foreground">{t('faucet.usdtCaption')}</p>
+            {balances && balances.usdt === 0n && TOKEN_ADDRESS && (
               <a
-                href={fxrpExplorerUrl}
+                href={tokenExplorerUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline"
               >
-                {t('faucet.checkFxrpToken')} <ExternalLinkIcon className="size-3" />
+                {t('faucet.checkToken')} <ExternalLinkIcon className="size-3" />
               </a>
             )}
           </CardContent>
@@ -145,12 +147,20 @@ export function FaucetPage() {
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button className="flex-1" disabled={faucetBusy} onClick={() => void runFaucet()}>
-              {faucetBusy ? (
+            <Button
+              className="flex-1"
+              disabled={mintBusy || mintCoolingDown || !TOKEN_ADDRESS}
+              onClick={() => void mintTokens()}
+            >
+              {mintBusy ? (
                 <RefreshCcwIcon className="mr-2 size-4 animate-spin" />
               ) : (
-                <ExternalLinkIcon className="mr-2 size-4" />
+                <DropletsIcon className="mr-2 size-4" />
               )}
+              {t('faucet.mintButton')}
+            </Button>
+            <Button variant="outline" className="flex-1" disabled={faucetBusy} onClick={() => void runFaucet()}>
+              <ExternalLinkIcon className="mr-2 size-4" />
               {t('faucet.openButton')}
             </Button>
             <Button variant="outline" onClick={() => void refreshBalances()}>
@@ -158,6 +168,12 @@ export function FaucetPage() {
               {t('common.refresh')}
             </Button>
           </div>
+
+          {mintCoolingDown && (
+            <p className="text-xs text-muted-foreground">
+              {t('faucet.mintCooldown', { time: new Date(mintAvailableAt * 1000).toLocaleString() })}
+            </p>
+          )}
 
           {hasFunds && (
             <p className="rounded-xl bg-primary/10 px-3 py-2 text-sm text-primary-ink">
