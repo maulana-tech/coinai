@@ -4,6 +4,7 @@ import { useTheme } from 'next-themes'
 import {
   ActivityIcon,
   ArrowUpRightIcon,
+  BotIcon,
   DropletsIcon,
   ExternalLinkIcon,
   LandmarkIcon,
@@ -109,6 +110,10 @@ function SidebarContent({ rail = false, onNavigate, onToggle }: SidebarContentPr
         <NavLink to="/app/yield" onClick={onNavigate} className={navClass}>
           <TrendingUpIcon className="size-[18px] shrink-0" />
           <span className={label}>{t('nav.yield')}</span>
+        </NavLink>
+        <NavLink to="/app/agent" onClick={onNavigate} className={navClass}>
+          <BotIcon className="size-[18px] shrink-0" />
+          <span className={label}>{t('nav.agent')}</span>
         </NavLink>
         <SectionLabel rail={rail}>{t('nav.action')}</SectionLabel>
         <NavLink to="/app/withdraw" onClick={onNavigate} className={navClass}>
