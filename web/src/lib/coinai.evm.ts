@@ -1,26 +1,27 @@
-import {
-  Contract,
-  Interface,
-  JsonRpcProvider,
-  getAddress,
-  type ContractRunner,
-} from 'ethers'
-import { FLARE_RPC_URL, FXRP_ADDRESS, COINAI_ADDRESS, FLARE_CHAIN_ID, VAULT_ADAPTER, SPARKDEX_ROUTER } from '@/lib/config'
-import { ensureFxrpAllowance, getBrowserSigner } from '@/lib/fxrp'
-import type { CoinAIAccount, CoinAIService, YieldTarget } from '@/lib/types'
+import { Contract, Interface, JsonRpcProvider, ZeroAddress, type ContractRunner } from 'ethers'
+import { RPC_URL, COINAI_ADDRESS } from '@/lib/config'
+import { getEthersSigner } from '@/lib/ethers-wagmi'
+import { ensureTokenAllowance } from '@/lib/token'
+import { YIELD_TARGETS, type CoinAIAccount, type CoinAIService, type YieldTarget } from '@/lib/types'
 
-const COINAI_ABI = [
+export const COINAI_ABI = [
   'function accountOf(address user) view returns ((uint16 splitBps,uint128 spend,uint128 shares,uint64 lockUntil,uint8 yieldTarget))',
+  'function agentOf(address user) view returns (address agent,uint16 minSplitBps,uint16 maxSplitBps,uint64 expiry)',
+  'function statsOf(address user) view returns (uint128 totalReceived,uint64 paymentCount,uint64 lastPaymentAt)',
+  'function vaultOf(uint8 target) view returns (address)',
   'function pay(address from,address to,uint256 amount)',
   'function withdrawSpend(address user,uint256 amount) returns (uint256)',
   'function withdrawSavings(address user,uint256 shares) returns (uint256)',
+  'function investSavings(uint256 amount,uint8 target) returns (uint256)',
   'function setSplit(address user,uint16 bps)',
   'function setLock(address user,uint64 until)',
   'function setYieldTarget(address user,uint8 target)',
-  'function withdrawSavingsToAdapter(uint256 shares,address tokenIn,address tokenOut,address adapter,uint256 amountOutMin,uint256 deadline) returns (uint256)',
+  'function setAgent(address agent,uint16 minSplitBps,uint16 maxSplitBps,uint64 expiry)',
+  'function revokeAgent()',
   'error InvalidAddress()',
   'error InvalidAmount()',
   'error InvalidBps()',
+  'error AmountOverflow()',
   'error InsufficientSpendable()',
   'error InsufficientShares()',
   'error LockActive()',
@@ -29,10 +30,13 @@ const COINAI_ABI = [
   'error LockTooLong()',
   'error SavingsNotZero()',
   'error Unauthorized()',
+  'error NotAgent()',
+  'error InvalidPolicy()',
+  'error SplitOutOfRange()',
 ] as const
 
+// Contract error name → `Error(Contract, #N)`, localized via lib/errors.ts
 const ERROR_CODES: Record<string, number> = {
-  InvalidAddress: 10,
   InvalidAmount: 1,
   InvalidBps: 2,
   InsufficientSpendable: 3,
@@ -42,37 +46,24 @@ const ERROR_CODES: Record<string, number> = {
   EmptyWithdrawal: 7,
   LockTooLong: 8,
   SavingsNotZero: 9,
+  InvalidAddress: 10,
   Unauthorized: 11,
+  NotAgent: 12,
+  InvalidPolicy: 13,
+  SplitOutOfRange: 14,
 }
 
 const iface = new Interface(COINAI_ABI)
 
-// Flare yield target mapping: SparkDEX=0, Firelight=1, Upshift=2
-function toYieldTarget(index: bigint): YieldTarget {
-  if (index === 0n) return 'sparkdex'
-  if (index === 2n) return 'upshift'
-  return 'firelight'
-}
-
-function fromYieldTarget(target: YieldTarget): number {
-  if (target === 'sparkdex') return 0
-  if (target === 'upshift') return 2
-  return 1 // firelight
-}
+const toYieldTarget = (index: bigint): YieldTarget => YIELD_TARGETS[Number(index)] ?? 'balanced'
+const fromYieldTarget = (target: YieldTarget): number => YIELD_TARGETS.indexOf(target)
 
 function reader(): Contract {
-  return new Contract(COINAI_ADDRESS, COINAI_ABI, new JsonRpcProvider(FLARE_RPC_URL))
+  return new Contract(COINAI_ADDRESS, COINAI_ABI, new JsonRpcProvider(RPC_URL))
 }
 
-import { getEthersSigner } from '@/lib/ethers-wagmi'
-
 async function signerContract(): Promise<Contract> {
-  const signer = await getEthersSigner()
-  const network = await signer.provider.getNetwork()
-  if (network.chainId !== BigInt(FLARE_CHAIN_ID)) {
-    throw new Error(`Wrong network: please connect to Coston2`)
-  }
-  return new Contract(COINAI_ADDRESS, COINAI_ABI, signer as ContractRunner)
+  return new Contract(COINAI_ADDRESS, COINAI_ABI, (await getEthersSigner()) as ContractRunner)
 }
 
 function asLegacyContractError(error: unknown): Error | null {
@@ -103,26 +94,29 @@ async function sendTx(txPromise: Promise<{ hash: string; wait: () => Promise<unk
   }
 }
 
+async function simulate<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call
+  } catch (error) {
+    throw asLegacyContractError(error) ?? error
+  }
+}
+
 export const coinaiEvm: CoinAIService = {
   async getAccount(user: string): Promise<CoinAIAccount> {
-    const contract = reader()
-    const acc = await contract.accountOf(user)
-    const rawTarget = BigInt(acc.yieldTarget)
-    const spend = BigInt(acc.spend)
-    const shares = BigInt(acc.shares)
-    const splitBps = Number(acc.splitBps)
-    // Uninitialized account: yieldTarget=0, spend=0, shares=0, splitBps=2000 (default)
-    // Default to 'firelight' instead of 'sparkdex' (which has no valid tokenOut on testnet)
-    const yieldTarget = (rawTarget === 0n && spend === 0n && shares === 0n && splitBps === 2000)
-      ? 'firelight' as const
-      : toYieldTarget(rawTarget)
-    return { splitBps, spend, shares, lockUntil: BigInt(acc.lockUntil), yieldTarget }
+    const acc = await reader().accountOf(user)
+    return {
+      splitBps: Number(acc.splitBps),
+      spend: BigInt(acc.spend),
+      shares: BigInt(acc.shares),
+      lockUntil: BigInt(acc.lockUntil),
+      yieldTarget: toYieldTarget(BigInt(acc.yieldTarget)),
+    }
   },
 
   async pay(from: string, to: string, amount: bigint) {
-    const signer = await getBrowserSigner()
-    await ensureFxrpAllowance(from, amount, signer)
-    const c = new Contract(COINAI_ADDRESS, COINAI_ABI, signer as ContractRunner)
+    const c = await signerContract()
+    await ensureTokenAllowance(from, amount, c.runner!, COINAI_ADDRESS)
     const hash = await sendTx(c.pay(from, to, amount, { gasLimit: 300_000 }))
     return { hash }
   },
@@ -135,14 +129,16 @@ export const coinaiEvm: CoinAIService = {
 
   async withdrawSavings(user: string, shares: bigint) {
     const c = await signerContract()
-    let amount = shares
-    try {
-      amount = BigInt(await c.withdrawSavings.staticCall(user, shares))
-    } catch (error) {
-      throw asLegacyContractError(error) ?? error
-    }
+    const amount = BigInt(await simulate(c.withdrawSavings.staticCall(user, shares)))
     const hash = await sendTx(c.withdrawSavings(user, shares, { gasLimit: 300_000 }))
     return { amount, hash }
+  },
+
+  async investSavings(_user: string, amount: bigint, target: YieldTarget) {
+    const c = await signerContract()
+    const amountOut = BigInt(await simulate(c.investSavings.staticCall(amount, fromYieldTarget(target))))
+    const hash = await sendTx(c.investSavings(amount, fromYieldTarget(target), { gasLimit: 400_000 }))
+    return { amountIn: amount, amountOut, hash }
   },
 
   async setSplit(user: string, bps: number) {
@@ -163,113 +159,26 @@ export const coinaiEvm: CoinAIService = {
     return { hash }
   },
 
-  async withdrawSavingsToAdapter(
-    _user: string,
-    shares: bigint,
-    tokenOut: string,
-    adapter: string,
-    amountOutMin: bigint,
-    deadline: bigint,
-  ) {
-    const c = await signerContract()
-    let amountOut = 0n
-    try {
-      amountOut = BigInt(
-        await c.withdrawSavingsToAdapter.staticCall(
-          shares,
-          FXRP_ADDRESS,
-          tokenOut,
-          adapter,
-          amountOutMin,
-          deadline,
-        ),
-      )
-    } catch (error) {
-      throw asLegacyContractError(error) ?? error
+  async getAgent(user: string) {
+    const p = await reader().agentOf(user)
+    return {
+      agent: p.agent === ZeroAddress ? null : (p.agent as string),
+      minSplitBps: Number(p.minSplitBps),
+      maxSplitBps: Number(p.maxSplitBps),
+      expiry: BigInt(p.expiry),
     }
-    const hash = await sendTx(
-      c.withdrawSavingsToAdapter(shares, FXRP_ADDRESS, tokenOut, adapter, amountOutMin, deadline, { gasLimit: 1_000_000 }),
-    )
-    return { amountIn: shares, amountOut, hash }
   },
 
-  async depositYieldDirect(
-    amount: bigint,
-    tokenOut: string,
-    adapter: string,
-    amountOutMin: bigint,
-    deadline: bigint,
-  ) {
-    let safeTokenOut: string
-    try {
-      safeTokenOut = getAddress(tokenOut)
-    } catch {
-      safeTokenOut = getAddress(tokenOut.toLowerCase())
-    }
+  async setAgent(_user: string, agent: string, minSplitBps: number, maxSplitBps: number, expiry: bigint) {
+    const c = await signerContract()
+    await simulate(c.setAgent.staticCall(agent, minSplitBps, maxSplitBps, expiry))
+    const hash = await sendTx(c.setAgent(agent, minSplitBps, maxSplitBps, expiry, { gasLimit: 200_000 }))
+    return { hash }
+  },
 
-    const signer = await getBrowserSigner()
-    const user = await (signer as any).getAddress()
-
-    const network = await signer.provider.getNetwork()
-    if (network.chainId !== BigInt(FLARE_CHAIN_ID)) {
-      throw new Error(`Wrong network: please connect to Flare Coston2`)
-    }
-
-    if (adapter === VAULT_ADAPTER) {
-      const vaultInterface = new Interface([
-        'function deposit(uint256 assets, address receiver) external returns (uint256)',
-      ])
-      const vaultContract = new Contract(safeTokenOut, vaultInterface, signer as ContractRunner)
-
-      await ensureFxrpAllowance(user, amount, signer, safeTokenOut)
-
-      let amountOut = 0n
-      try {
-        amountOut = await vaultContract.deposit.staticCall(amount, user)
-      } catch (staticErr: any) {
-        const msg = staticErr?.shortMessage ?? staticErr?.message ?? String(staticErr)
-        if (/maxDeposit|max deposit/i.test(msg)) {
-          throw new Error('This vault is not accepting deposits right now.')
-        }
-        if (/allowance/i.test(msg)) {
-          throw new Error('Token approval failed. Please try again.')
-        }
-        throw new Error('Vault deposit failed: ' + msg.slice(0, 120))
-      }
-      const hash = await sendTx(vaultContract.deposit(amount, user, { gasLimit: 500_000 }))
-      return { amountIn: amount, amountOut, hash }
-    } else {
-      const routerAddress = SPARKDEX_ROUTER
-
-      const provider = new JsonRpcProvider(FLARE_RPC_URL)
-      const code = await provider.getCode(safeTokenOut)
-      if (code === '0x') {
-        throw new Error('This yield source is not available on the testnet right now.')
-      }
-
-      await ensureFxrpAllowance(user, amount, signer, routerAddress)
-      const routerInterface = new Interface([
-        'function exactInputSingle(tuple(address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) external returns (uint256)'
-      ])
-      const router = new Contract(routerAddress, routerInterface, signer as ContractRunner)
-      const params = {
-        tokenIn: FXRP_ADDRESS,
-        tokenOut: safeTokenOut,
-        fee: 3000n,
-        recipient: user,
-        deadline,
-        amountIn: amount,
-        amountOutMinimum: amountOutMin,
-        sqrtPriceLimitX96: 0n
-      }
-      let amountOut = 0n
-      try {
-        amountOut = await router.exactInputSingle.staticCall(params)
-      } catch {
-        throw new Error('This yield source is not available on the testnet right now.')
-      }
-      const hash = await sendTx(router.exactInputSingle(params, { gasLimit: 500_000 }))
-      return { amountIn: amount, amountOut, hash }
-    }
+  async revokeAgent() {
+    const c = await signerContract()
+    const hash = await sendTx(c.revokeAgent({ gasLimit: 100_000 }))
+    return { hash }
   },
 }
