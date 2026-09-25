@@ -10,6 +10,9 @@ const CONTRACT_ERROR_KEYS: Record<number, MessageKey> = {
   7: 'errors.emptyWithdrawal',
   8: 'errors.lockTooFar',
   9: 'errors.switchTargetWithBalance',
+  12: 'errors.notAgent',
+  13: 'errors.invalidPolicy',
+  14: 'errors.splitOutOfRange',
   1000: 'errors.paused',
 }
 
@@ -29,10 +32,11 @@ export function errorKey(e: unknown): MessageKey {
   if (contract) return CONTRACT_ERROR_KEYS[Number(contract[1])] ?? 'errors.generic'
   if (text.includes('faucet_unavailable')) return 'errors.faucetUnavailable'
   if (text.includes('faucet_maybe_funded')) return 'errors.faucetAlreadyFunded'
+  if (/FaucetCooldown/i.test(text)) return 'errors.faucetCooldown'
   if (text.includes('wallet_not_found')) return 'common.connectFirst'
   if (text.includes('wallet_timeout')) return 'errors.walletTimeout'
   if (/reject|declin|denied|closed/i.test(text)) return 'errors.walletCancelled'
-  if (/wrong network|coston2/i.test(text)) return 'errors.wrongNetwork'
+  if (/wrong network|chain mismatch|switch.*chain/i.test(text)) return 'errors.wrongNetwork'
   if (/vault.*not accepting|maxDeposit|not accepting deposits/i.test(text)) return 'errors.vaultNotAccepting'
   if (/insufficient allowance|allowance/i.test(text)) return 'errors.insufficientAllowance'
   if (/CALL_EXCEPTION|execution reverted|transaction.*reverted/i.test(text)) return 'errors.txReverted'
