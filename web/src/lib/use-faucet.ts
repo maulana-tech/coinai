@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getNativeBalance } from '@/lib/balances'
-import { getFxrpBalance, FXRP_SCALE } from '@/lib/fxrp'
+import { faucetAvailableAt, getTokenBalance, mintTestTokens, TOKEN_SCALE } from '@/lib/token'
+import { TBNB_FAUCET_URL, TOKEN_ADDRESS } from '@/lib/config'
 import { useWallet } from '@/lib/wallet'
 
-const FAUCET_URL = 'https://faucet.flare.network/coston2'
 const FAUCET_STORAGE_KEY = 'coinai:faucet:v1'
 
-const MIN_C2FLR = 1n * 10n ** 17n // 0.1 C2FLR
-const MIN_FXRP = 1n * FXRP_SCALE // 1 FXRP
+const MIN_BNB = 1n * 10n ** 16n // 0.01 tBNB, enough gas for many txs
+const MIN_TOKEN = 1n * TOKEN_SCALE // 1 tUSDT
 
 export type FaucetBalance = {
-  c2flr: bigint
-  fxrp: bigint
+  bnb: bigint
+  usdt: bigint
 }
 
 export function faucetedFlag(address: string): boolean {
@@ -43,11 +43,16 @@ export function useFaucet(): {
   error: string | null
   hasFunds: boolean
   runFaucet: () => Promise<void>
+  mintBusy: boolean
+  mintAvailableAt: number
+  mintTokens: () => Promise<string | null>
   refreshBalances: () => Promise<void>
 } {
   const { address } = useWallet()
   const [balances, setBalances] = useState<FaucetBalance | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [mintBusy, setMintBusy] = useState(false)
+  const [mintAvailableAt, setMintAvailableAt] = useState(0)
 
   const refreshBalances = useCallback(async () => {
     if (!address) {
@@ -57,12 +62,14 @@ export function useFaucet(): {
     }
     setError(null)
     try {
-      const [c2flr, fxrp] = await Promise.all([
+      const [bnb, usdt, availableAt] = await Promise.all([
         getNativeBalance(address),
-        getFxrpBalance(address),
+        TOKEN_ADDRESS ? getTokenBalance(address) : 0n,
+        TOKEN_ADDRESS ? faucetAvailableAt(address) : 0,
       ])
-      setBalances({ c2flr, fxrp })
-      const funded = c2flr >= MIN_C2FLR || fxrp >= MIN_FXRP
+      setBalances({ bnb, usdt })
+      setMintAvailableAt(availableAt)
+      const funded = bnb >= MIN_BNB && usdt >= MIN_TOKEN
       setFaucetedFlag(address, funded)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'balance_fetch_failed')
@@ -75,16 +82,35 @@ export function useFaucet(): {
   }, [refreshBalances])
 
   const runFaucet = useCallback(async () => {
-    window.open(FAUCET_URL, '_blank', 'noopener,noreferrer')
+    window.open(TBNB_FAUCET_URL, '_blank', 'noopener,noreferrer')
   }, [])
 
+  // Returns the tx hash, or null after surfacing the error in `error`.
+  const mintTokens = useCallback(async () => {
+    setMintBusy(true)
+    setError(null)
+    try {
+      const hash = await mintTestTokens()
+      await refreshBalances()
+      return hash
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return null
+    } finally {
+      setMintBusy(false)
+    }
+  }, [refreshBalances])
+
   const hasFunds = balances
-    ? balances.c2flr >= MIN_C2FLR || balances.fxrp >= MIN_FXRP
+    ? balances.bnb >= MIN_BNB && balances.usdt >= MIN_TOKEN
     : faucetedFlag(address ?? '')
 
   return {
     faucetBusy: false,
-    anyBusy: false,
+    anyBusy: mintBusy,
+    mintBusy,
+    mintAvailableAt,
+    mintTokens,
     balances,
     error,
     hasFunds,
