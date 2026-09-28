@@ -5,6 +5,7 @@ import {
   ActivityIcon,
   ArrowUpRightIcon,
   BotIcon,
+  MessageCircleIcon,
   DropletsIcon,
   ExternalLinkIcon,
   LandmarkIcon,
@@ -114,6 +115,10 @@ function SidebarContent({ rail = false, onNavigate, onToggle }: SidebarContentPr
         <NavLink to="/app/agent" onClick={onNavigate} className={navClass}>
           <BotIcon className="size-[18px] shrink-0" />
           <span className={label}>{t('nav.agent')}</span>
+        </NavLink>
+        <NavLink to="/app/chat" onClick={onNavigate} className={navClass}>
+          <MessageCircleIcon className="size-[18px] shrink-0" />
+          <span className={label}>{t('nav.chat')}</span>
         </NavLink>
         <SectionLabel rail={rail}>{t('nav.action')}</SectionLabel>
         <NavLink to="/app/withdraw" onClick={onNavigate} className={navClass}>
