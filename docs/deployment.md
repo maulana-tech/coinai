@@ -16,7 +16,7 @@ coinAI runs on **BNB Smart Chain Testnet** (chain ID 97). A deploy has three par
 |---|---|
 | Chain | BNB Smart Chain Testnet |
 | Chain ID | 97 |
-| RPC | `https://bsc-testnet-rpc.publicnode.com` (supports `eth_getLogs` up to 50k blocks, CORS). The official `data-seed-prebsc-*` RPCs reject `eth_getLogs`, so the app doesn't use them for reads |
+| RPC | Contract reads and agent transactions: `https://bsc-testnet-dataseed.bnbchain.org` (fast under parallel load). Event history: `https://bsc-testnet-rpc.publicnode.com`, the only public node that serves `eth_getLogs` (≤50k blocks) with CORS, but it throttles bursts. See `web/shared/rpc.ts` |
 | Explorer | `https://testnet.bscscan.com` |
 | Faucet (tBNB) | `https://faucet.zalalena.com/bsc` — address + captcha, no mainnet balance or account (used by the app). Alternatives: [QuickNode](https://faucet.quicknode.com/binance-smart-chain/bnb-testnet) (no balance, every 12h), [Bitbond](https://tokentool.bitbond.com/faucet/bsc-testnet) (wallet + profile), or the [official faucet](https://www.bnbchain.org/en/testnet-faucet) (needs 0.002 BNB on mainnet) |
 | Native token | tBNB (18 decimals) |
@@ -141,7 +141,7 @@ Vault addresses are read from `CoinAI.vaultOf()`, so they aren't configured.
 | Variable | Contents |
 |---|---|
 | `COINAI_ADDRESS` | CoinAI address (falls back to `VITE_COINAI_ADDRESS`) |
-| `BSC_RPC_URL` | Defaults to `https://bsc-testnet-rpc.publicnode.com` |
+| `BSC_RPC_URL` | Defaults to `https://bsc-testnet-dataseed.bnbchain.org`. Don't point it at publicnode: it throttles the agent's parallel reads (20–30s per run) |
 | `AGENT_PRIVATE_KEY` | **Agent** wallet private key (not the deployer) |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | See section 2 |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Set automatically by Upstash |
