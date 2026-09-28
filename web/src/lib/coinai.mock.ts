@@ -98,6 +98,11 @@ export const coinaiMock: CoinAIService = {
     return agents.get(user) ?? NO_AGENT
   },
 
+  async getStats() {
+    await delay()
+    return { totalReceived: 0n, paymentCount: 0, lastPaymentAt: 0n }
+  },
+
   async setAgent(user, agent, minSplitBps, maxSplitBps, expiry) {
     await delay()
     if (minSplitBps > maxSplitBps || maxSplitBps > 10_000 || expiry <= nowSeconds()) throw new Error('Error(Contract, #13)')
