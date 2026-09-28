@@ -3,7 +3,8 @@
 // loginMessage() there.
 import { signMessage } from '@wagmi/core'
 import { config } from '@/lib/wagmi'
-import type { YieldTarget } from '@/lib/types'
+import { AGENT_ADDRESS } from '@/lib/config'
+import type { AgentPolicy, YieldTarget } from '@/lib/types'
 
 export type AgentStep = {
   agent: 'market' | 'savings' | 'investment' | 'guard' | 'risk' | 'executor'
@@ -144,4 +145,14 @@ export const agentApi = {
       method: 'DELETE',
       body: JSON.stringify({ channel }),
     }),
+}
+
+/** True when the wallet's on-chain policy points at our agent and hasn't expired. */
+export function isAgentActive(policy: AgentPolicy | null): boolean {
+  return (
+    !!policy?.agent &&
+    !!AGENT_ADDRESS &&
+    policy.agent.toLowerCase() === AGENT_ADDRESS.toLowerCase() &&
+    Number(policy.expiry) * 1000 > Date.now()
+  )
 }
