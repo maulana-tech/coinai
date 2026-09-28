@@ -195,7 +195,7 @@ function ProfileCard({ address }: { address: string }) {
           <p className="text-sm font-medium">{t('agentRole.riskLabel')}</p>
           <div className="flex flex-wrap gap-2">
             {RISKS.map((r) => (
-              <Button key={r} size="sm" variant={profile.risk === r ? 'default' : 'outline'} onClick={() => setProfile({ ...profile, risk: r })}>
+              <Button key={r} size="sm" variant={profile.risk === r ? 'default' : 'outline'} onClick={() => setProfile((p) => ({ ...p, risk: r }))}>
                 {t(`agentRole.risk_${r}` as MessageKey)}
               </Button>
             ))}
@@ -205,7 +205,7 @@ function ProfileCard({ address }: { address: string }) {
           <p className="text-sm font-medium">{t('agentRole.horizonLabel')}</p>
           <div className="flex flex-wrap gap-2">
             {HORIZONS.map((h) => (
-              <Button key={h} size="sm" variant={profile.horizon === h ? 'default' : 'outline'} onClick={() => setProfile({ ...profile, horizon: h })}>
+              <Button key={h} size="sm" variant={profile.horizon === h ? 'default' : 'outline'} onClick={() => setProfile((p) => ({ ...p, horizon: h }))}>
                 {t(`agentRole.horizon_${h}` as MessageKey)}
               </Button>
             ))}
@@ -220,7 +220,10 @@ function ProfileCard({ address }: { address: string }) {
             value={profile.goal}
             maxLength={140}
             placeholder={t('agentRole.goalPlaceholder')}
-            onChange={(e) => setProfile({ ...profile, goal: e.target.value })}
+            onChange={(e) => {
+              const goal = e.target.value
+              setProfile((p) => ({ ...p, goal }))
+            }}
           />
         </div>
         <Button disabled={saving} onClick={() => void save()}>
