@@ -1,5 +1,5 @@
 // Client for the agent backend in web/api. Auth: sign a login message once with the
-// wallet, get a 24h bearer token (see api/_lib/http.ts). The message format must match
+// wallet, get a 7-day bearer token (see api/_lib/http.ts). The message format must match
 // loginMessage() there.
 import { signMessage } from '@wagmi/core'
 import { config } from '@/lib/wagmi'
@@ -39,6 +39,7 @@ export type AgentRun = {
   report: string
 }
 
+export type LlmKey = { id: string; tail: string; addedAt: number }
 export type ChatMessage = { role: 'user' | 'assistant'; content: string }
 export type Subscription = { email?: string; telegramChatId?: number; locale: string } | null
 
@@ -91,15 +92,33 @@ async function call<T>(address: string, path: string, init: RequestInit = {}): P
   return body as T
 }
 
+// Public, no-signature endpoints: the server re-checks everything on-chain.
+const post = (path: string, payload: object) =>
+  fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), keepalive: true })
+
+export const autopilot = {
+  /** Fire-and-forget after a payment: lets the recipient's agents invest the new savings right away. */
+  nudge: (recipient: string) => void post('/api/agent/nudge', { user: recipient }).catch(() => {}),
+  /** Enrolls a wallet that authorized the agent in the daily run; resolves to whether autopilot is on. */
+  register: async (address: string): Promise<boolean> => {
+    const res = await post('/api/agent/register', { user: address }).catch(() => null)
+    const body = res?.ok ? await res.json().catch(() => null) : null
+    return body?.autopilot === true
+  },
+}
+
 export const agentApi = {
   run: (address: string, locale: string) =>
     call<AgentRun>(address, '/api/agent/run', { method: 'POST', body: JSON.stringify({ locale }) }),
-  history: (address: string) => call<{ runs: AgentRun[] }>(address, '/api/agent/history'),
-  chat: (address: string, messages: ChatMessage[], locale: string) =>
-    call<{ reply: string; run?: AgentRun }>(address, '/api/agent/chat', {
+  history: (address: string) => call<{ runs: AgentRun[]; running: boolean }>(address, '/api/agent/history'),
+  // One conversation per wallet, stored server-side and shared with Telegram.
+  chatHistory: (address: string) => call<{ messages: ChatMessage[]; pending: boolean }>(address, '/api/agent/chat'),
+  chat: (address: string, message: string, locale: string) =>
+    call<{ reply: string; run?: AgentRun; messages: ChatMessage[] }>(address, '/api/agent/chat', {
       method: 'POST',
-      body: JSON.stringify({ messages, locale }),
+      body: JSON.stringify({ message, locale }),
     }),
+  clearChat: (address: string) => call<{ messages: ChatMessage[] }>(address, '/api/agent/chat', { method: 'DELETE' }),
   subscription: (address: string) => call<{ subscription: Subscription }>(address, '/api/subscribe'),
   subscribeEmail: (address: string, email: string, locale: string) =>
     call<{ subscription: Subscription }>(address, '/api/subscribe', {
@@ -114,6 +133,12 @@ export const agentApi = {
   profile: (address: string) => call<{ profile: InvestorProfile }>(address, '/api/agent/profile'),
   saveProfile: (address: string, profile: InvestorProfile) =>
     call<{ profile: InvestorProfile }>(address, '/api/agent/profile', { method: 'POST', body: JSON.stringify(profile) }),
+  // Bring-your-own OpenRouter keys; the server only ever returns the last 4 characters.
+  llmKeys: (address: string) => call<{ keys: LlmKey[] }>(address, '/api/agent/keys'),
+  addLlmKey: (address: string, key: string) =>
+    call<{ keys: LlmKey[] }>(address, '/api/agent/keys', { method: 'POST', body: JSON.stringify({ key }) }),
+  removeLlmKey: (address: string, id: string) =>
+    call<{ keys: LlmKey[] }>(address, '/api/agent/keys', { method: 'DELETE', body: JSON.stringify({ id }) }),
   unsubscribe: (address: string, channel: 'email' | 'telegram') =>
     call<{ subscription: Subscription }>(address, '/api/subscribe', {
       method: 'DELETE',
