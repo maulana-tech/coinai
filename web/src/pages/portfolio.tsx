@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BotIcon, Loader2Icon, LockIcon } from 'lucide-react'
+import { ArrowRightIcon, BotIcon, Loader2Icon, LockIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityList } from '@/components/activity-list'
 import { ConnectPrompt } from '@/components/connect-prompt'
@@ -110,9 +110,12 @@ function Portfolio({ address }: { address: string }) {
     if (!AGENT_ADDRESS || !account) return null
     if (!agentOn)
       return (
-        <Button asChild className="rounded-full">
-          <Link to="/app/agent">{t('portfolio.enableAgent')}</Link>
-        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground sm:max-w-xl">{t('portfolio.enableHint')}</p>
+          <Button asChild className="shrink-0 rounded-full">
+            <Link to="/app/agent">{t('portfolio.enableAgent')}</Link>
+          </Button>
+        </div>
       )
     const blockedBy = locked
       ? t('portfolio.waitLock', { date: account ? formatDate(account.lockUntil, locale) : '' })
@@ -120,17 +123,15 @@ function Portfolio({ address }: { address: string }) {
         ? t('portfolio.nothingIdle')
         : null
     return (
-      <div className="space-y-2">
-        <Button className="rounded-full" disabled={running || !!blockedBy} onClick={() => void apply()}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="flex items-start gap-2 text-sm text-muted-foreground sm:max-w-xl">
+          {locked && <LockIcon className="mt-0.5 size-4 shrink-0" />}
+          {blockedBy ?? t('portfolio.applyHint')}
+        </p>
+        <Button className="shrink-0 rounded-full" disabled={running || !!blockedBy} onClick={() => void apply()}>
           {running ? <Loader2Icon className="mr-2 size-4 animate-spin" /> : <BotIcon className="mr-2 size-4" />}
           {running ? t('agent.running') : t('portfolio.apply')}
         </Button>
-        {blockedBy && (
-          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-            {locked && <LockIcon className="mt-0.5 size-3 shrink-0" />}
-            {blockedBy}
-          </p>
-        )}
       </div>
     )
   })()
@@ -142,33 +143,27 @@ function Portfolio({ address }: { address: string }) {
       {/* Status */}
       <Card className="rounded-2xl shadow-none">
         <CardContent className="space-y-5">
-          <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 sm:gap-0 sm:divide-x [&>*]:sm:px-5 [&>*:first-child]:sm:pl-0">
           <Stat label={t('portfolio.total')} value={account && vaults ? money(idle + invested) : '-'} />
           <Stat label={t('portfolio.invested')} value={vaults ? money(invested) : '-'} />
           <Stat label={t('portfolio.idle')} value={account ? money(idle) : '-'} />
           <Stat
             label={t('portfolio.agent')}
             value={agentOn ? t('portfolio.agentOn') : t('portfolio.agentOff')}
-            note={
-              locked
-                ? t('portfolio.lockedUntil', { date: formatDate(account!.lockUntil, locale) })
-                : agentOn
-                  ? t('portfolio.schedule')
-                  : undefined
-            }
+            note={agentOn ? t('portfolio.schedule') : undefined}
           />
           </div>
           {action && <div className="border-t pt-4">{action}</div>}
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Plan vs position */}
         <Card className="rounded-2xl shadow-none">
           <CardHeader>
             <CardTitle>{t('portfolio.planTitle')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             {!vaults && vaultsLoading ? (
               <Skeleton className="h-40 w-full" />
             ) : !vaults ? (
@@ -184,11 +179,14 @@ function Portfolio({ address }: { address: string }) {
                   const actual = invested > 0n ? Number((vaults[k].position * 10_000n) / invested) / 100 : 0
                   const target = plan?.allocation?.[k]
                   return (
-                    <div key={k} className="space-y-1.5">
-                      <div className="flex items-center gap-2 text-sm">
-                        <img src={VAULT_LOGO[k]} alt="" className="size-5 rounded-full" />
-                        <span className="flex-1 font-medium">{t(VAULT_NAME[k])}</span>
-                        <span className="text-xs text-muted-foreground tabular-nums">{t('yield.apyValue', { apy: `${Math.round(vaults[k].apy * 100)}%` })}</span>
+                    <div key={k} className="space-y-2">
+                      <div className="flex items-center gap-2.5 text-sm">
+                        <img src={VAULT_LOGO[k]} alt="" className="size-6 rounded-full" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">{t(VAULT_NAME[k])}</span>
+                          <span className="block text-xs text-muted-foreground">{t('yield.apyValue', { apy: `${Math.round(vaults[k].apy * 100)}%` })}</span>
+                        </span>
+                        <span className="font-medium tabular-nums">{money(vaults[k].position)}</span>
                       </div>
                       <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2 text-xs">
                         <span className="text-muted-foreground">{t('portfolio.planLabel')}</span>
@@ -198,11 +196,10 @@ function Portfolio({ address }: { address: string }) {
                         <Bar pct={actual} />
                         <span className="text-right tabular-nums">{actual.toFixed(0)}%</span>
                       </div>
-                      <p className="text-right text-xs text-muted-foreground tabular-nums">{money(vaults[k].position)}</p>
                     </div>
                   )
                 })}
-                <p className="text-xs text-muted-foreground">
+                <p className="border-t pt-4 text-xs text-muted-foreground">
                   {plan
                     ? t('portfolio.planMeta', { time: formatDateTime(new Date(plan.at), locale), buffer })
                     : runs === null
@@ -220,11 +217,11 @@ function Portfolio({ address }: { address: string }) {
         </Card>
 
         {/* Why */}
-        <Card className="rounded-2xl shadow-none">
+        <Card className="flex flex-col rounded-2xl shadow-none">
           <CardHeader>
             <CardTitle>{t('portfolio.whyTitle')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+          <CardContent className="flex flex-1 flex-col gap-4 text-sm">
             {profile && (
               <div className="grid grid-cols-2 gap-4">
                 <Stat label={t('agentRole.riskLabel')} value={t(`agentRole.risk_${profile.risk}` as MessageKey)} />
@@ -250,8 +247,12 @@ function Portfolio({ address }: { address: string }) {
               </div>
             )}
             {!profile && !plan && <p className="text-muted-foreground">{t('portfolio.whyEmpty')}</p>}
-            <Link to="/app/agent/investment" className="inline-block text-xs text-primary-ink hover:underline">
+            <Link
+              to="/app/agent/investment"
+              className="mt-auto flex items-center justify-between border-t pt-4 text-sm font-medium text-primary-ink hover:underline"
+            >
               {t('portfolio.editProfile')}
+              <ArrowRightIcon className="size-4" />
             </Link>
           </CardContent>
         </Card>
