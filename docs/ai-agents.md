@@ -94,9 +94,15 @@ The daily cron compares against yesterday's snapshot (`snap:<user>` in Redis) to
 | Channel | How | Setup |
 |---|---|---|
 | **Telegram** | Bot API `sendMessage`. User links via a one-time deep link `t.me/<bot>?start=<code>` (1h TTL) generated after wallet login | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`, then `web/scripts/setup-telegram.sh` |
-| **Email** | **Gmail SMTP via `nodemailer`**, authenticated with a Gmail App Password; sent from `GMAIL_USER` | `GMAIL_USER`, `GMAIL_APP_PASSWORD` (Google account needs 2-Step Verification) |
+| **Email** | **Gmail SMTP via `nodemailer`** (App Password, sent from `GMAIL_USER`). A statement-style HTML email (`api/_lib/email.ts`: summary, vault holdings, market read with Chainlink prices, agent actions with BscScan links, reporter's note, reminders) plus a one-page **PDF statement** attachment (`api/_lib/report-pdf.ts`, `pdf-lib`, en/id — the standard PDF fonts can't draw Chinese, so `zh` gets the HTML only). All LLM text is HTML-escaped | `GMAIL_USER`, `GMAIL_APP_PASSWORD` (Google account needs 2-Step Verification) |
 
 Gmail's personal sending limit (~500/day) is plenty for the demo. For production volume, swap `sendEmail()` in `web/api/_lib/notify.ts` for a transactional provider (Resend, Postmark, SES) — it's one function.
+
+## Persistence
+
+- **Chat**: one conversation per wallet in Redis (`chat:<address>`, last 40 turns, 7 days), shared by the web chat (`/app/chat`) and Telegram. The user's message is stored before the model answers and a `chat:pending:<address>` flag is set, so closing the page mid-answer loses nothing: on return the page shows "thinking" and polls until the reply lands.
+- **Agent runs**: `runSwarm` sets `running:<address>` (5 min TTL) for the duration of a run; `/api/agent/history` returns it, and the Agent page shows "still running" and polls until the result appears. The last 20 runs stay in `runs:<address>`.
+- **Decisions**: `AgentAction` events on-chain, read by the decision log.
 
 ## Chat on Telegram
 
@@ -104,18 +110,18 @@ Once a chat is linked to a wallet, the bot is a full second front end for the sa
 
 | Message | What happens |
 |---|---|
-| any text | Chat Advisor with tools (`get_state`, `get_market`, `get_recent_runs`, `run_agent_team`); last 12 turns kept per chat for 7 days |
+| any text | Chat Advisor with tools (`get_state`, `get_market`, `get_recent_runs`, `run_agent_team`); same conversation as the web chat |
 | `/market` | Live Chainlink prices + Market Analyst read (works before linking) |
 | `/run` | Runs the agent team now and replies with the report + BscScan links |
 | `/report` | Report only, no transactions |
-| `/reset` | Clears the chat memory |
+| `/reset` | Clears the conversation (web + Telegram) |
 | `/stop` | Unlinks the chat and stops daily reports |
 
 The bot shows "typing…" while the agents work, ignores Telegram's retries of the same `update_id`, shares the 30 messages / 10 min limit with the web chat, and always answers 200 so updates don't pile up.
 
 ## Auth
 
-Chat, run and subscribe calls need a session: the app asks the wallet to `personal_sign` a login message, `POST /api/auth` verifies it and returns a 24h HMAC token (`SESSION_SECRET`). Opening the Agent page never pops a signature by itself; it's only requested when the user runs, chats, or manages notifications.
+Chat, run and subscribe calls need a session: the app asks the wallet to `personal_sign` a login message, `POST /api/auth` verifies it and returns a 7-day HMAC token (`SESSION_SECRET`). Opening the Agent page never pops a signature by itself; it's only requested when the user runs, chats, or manages notifications.
 
 ## Files
 
