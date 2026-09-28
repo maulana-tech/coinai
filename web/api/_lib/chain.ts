@@ -31,6 +31,7 @@ export function env(name: string): string {
 const provider = () =>
   new JsonRpcProvider(process.env.BSC_RPC_URL || 'https://bsc-testnet-rpc.publicnode.com', 97, {
     staticNetwork: true,
+    batchMaxCount: 1, // publicnode is very slow on JSON-RPC batches
   })
 const coinaiAddress = () => process.env.COINAI_ADDRESS || process.env.VITE_COINAI_ADDRESS || DEPLOYMENT.coinai
 export const agentWallet = () => new Wallet(env('AGENT_PRIVATE_KEY'), provider())
