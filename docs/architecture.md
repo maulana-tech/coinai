@@ -112,6 +112,7 @@ readUserState + profile ─┬─ Savings Strategist ─────┐
 | `/app` | Dashboard |
 | `/app/agent` | AI agent: permission, team, run now, chat, notifications, decision log |
 | `/app/agent/:role` | One page per agent: market, savings, investment, guardrails, risk, executor, reporter |
+| `/app/chat` | Chat with coinAI (saved per wallet, shared with Telegram) |
 | `/app/yield` | Vault position, move savings into a vault, vault list |
 | `/app/rules` | Split, vault preference, time-lock |
 | `/app/withdraw`, `/app/activity`, `/app/link`, `/app/faucet`, `/app/settings` | — |
