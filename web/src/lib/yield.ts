@@ -1,6 +1,6 @@
-import { Contract, JsonRpcProvider } from 'ethers'
+import { Contract } from 'ethers'
 import { COINAI_ABI } from '@/lib/coinai.evm'
-import { COINAI_ADDRESS, CONTRACT_ID, RPC_URL } from '@/lib/config'
+import { COINAI_ADDRESS, CONTRACT_ID, readProvider } from '@/lib/config'
 import type { ActivityItem } from '@/lib/activity'
 import { TOKEN_SCALE } from '@/lib/token'
 import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
@@ -42,7 +42,7 @@ const MOCK_VAULTS: Vaults = {
 
 export async function getVaults(user: string | null): Promise<Vaults> {
   if (CONTRACT_ID === '') return MOCK_VAULTS
-  const provider = new JsonRpcProvider(RPC_URL)
+  const provider = readProvider
   const coinai = new Contract(COINAI_ADDRESS, COINAI_ABI, provider)
   const list = await Promise.all(
     YIELD_TARGETS.map(async (target, i): Promise<VaultInfo> => {
