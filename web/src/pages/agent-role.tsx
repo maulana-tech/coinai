@@ -280,7 +280,7 @@ function InvestmentPanel({ address, runs }: { address: string; runs: AgentRun[] 
         <ProfileCard address={address} />
         <AllocationCard runs={runs} />
       </div>
-      <YieldSourcesCard vaults={vaults} loading={loading} rates={rates} selectedTarget={account?.yieldTarget} />
+      <YieldSourcesCard vaults={vaults} loading={loading} rates={rates} selectedTarget={account?.yieldTarget} readOnly />
     </>
   )
 }
