@@ -24,6 +24,13 @@ export type AgentPolicy = {
   expiry: bigint
 }
 
+// Lifetime payment stats kept on-chain (CoinAI.statsOf)
+export type PaymentStats = {
+  totalReceived: bigint
+  paymentCount: number
+  lastPaymentAt: bigint
+}
+
 export type TxResult = { hash: string }
 export type WithdrawSavingsResult = { amount: bigint; hash: string }
 
@@ -37,6 +44,7 @@ export interface CoinAIService {
   setLock(user: string, until: bigint): Promise<TxResult>
   setYieldTarget(user: string, target: YieldTarget): Promise<TxResult>
   getAgent(user: string): Promise<AgentPolicy>
+  getStats(user: string): Promise<PaymentStats>
   setAgent(user: string, agent: string, minSplitBps: number, maxSplitBps: number, expiry: bigint): Promise<TxResult>
   revokeAgent(user: string): Promise<TxResult>
 }
