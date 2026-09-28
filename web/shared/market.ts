@@ -61,7 +61,7 @@ async function oraclePrice(provider: JsonRpcProvider, feed: string): Promise<{ p
 }
 
 export async function fetchMarket(rpcUrl = ORACLE_RPC_URL): Promise<MarketSnapshot> {
-  const provider = new JsonRpcProvider(rpcUrl, 97, { staticNetwork: true })
+  const provider = new JsonRpcProvider(rpcUrl, 97, { staticNetwork: true, batchMaxCount: 1 })
   const coins = await Promise.all(
     COINS.map(async (c): Promise<CoinMarket> => {
       const [closes, oracle] = await Promise.all([dailyCloses(c.pair), oraclePrice(provider, c.feed)])
