@@ -1,193 +1,189 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
-import { ArrowRightIcon, Loader2Icon, SparklesIcon, InfoIcon, XIcon } from 'lucide-react'
+import { ArrowDownIcon, LockIcon } from 'lucide-react'
 import { TokenIcon } from '@/components/brand/token-icon'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { parseToken, tokenToInput } from '@/lib/format'
-import { formatMoney, useT, type MessageKey } from '@/lib/i18n'
+import { formatDate, formatMoney, intlLocale, useT, type MessageKey } from '@/lib/i18n'
 import type { FxRates } from '@/lib/rates'
-import { useSettings } from '@/lib/settings'
-import type { YieldTarget } from '@/lib/types'
+import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
+import { YIELD_TARGETS, type CoinAIAccount, type YieldTarget } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useWallet } from '@/lib/wallet'
+import { VAULT_LOGO, type Vaults } from '@/lib/yield'
 
-function shortAddr(address: string): string {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`
+const VAULT: Record<YieldTarget, { name: MessageKey; tab: MessageKey; route: MessageKey }> = {
+  conservative: { name: 'yield.sourceConservativeName', tab: 'yield.tabConservative', route: 'yield.sourceConservativeRoute' },
+  balanced: { name: 'yield.sourceBalancedName', tab: 'yield.tabBalanced', route: 'yield.sourceBalancedRoute' },
+  growth: { name: 'yield.sourceGrowthName', tab: 'yield.tabGrowth', route: 'yield.sourceGrowthRoute' },
 }
 
-const VAULT_NAME_KEY: Record<YieldTarget, MessageKey> = {
-  conservative: 'yield.sourceConservativeName',
-  balanced: 'yield.sourceBalancedName',
-  growth: 'yield.sourceGrowthName',
+// Parses what the user typed; null while empty or not a valid amount (no error while typing).
+function tryParse(raw: string): bigint | null {
+  try {
+    const v = parseToken(raw)
+    return v > 0n ? v : null
+  } catch {
+    return null
+  }
 }
 
 type YieldDepositCardProps = {
-  shares: bigint
-  yieldTarget: YieldTarget
-  vaultAddress: string | null
+  account: CoinAIAccount
+  vaults: Vaults | null
   rates: FxRates
-  onDeposit: (amount: bigint) => Promise<void>
+  onDeposit: (amount: bigint, target: YieldTarget) => Promise<boolean>
   busy: boolean
-  available?: boolean
 }
 
-export function YieldDepositCard({
-  shares,
-  yieldTarget,
-  vaultAddress,
-  rates,
-  onDeposit,
-  busy,
-  available = true,
-}: YieldDepositCardProps) {
+// Same shape as the withdraw card: visual panel left, swap-style card right
+// (idle savings → the vault picked in the tabs).
+export function YieldDepositCard({ account, vaults, rates, onDeposit, busy }: YieldDepositCardProps) {
   const t = useT()
-  const { address } = useWallet()
-  const { locale } = useSettings()
-  const [amount, setAmount] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [showInfo, setShowInfo] = useState(false)
+  const { locale, primaryCurrency } = useSettings()
+  const [target, setTarget] = useState<YieldTarget>(account.yieldTarget)
+  const [value, setValue] = useState('')
 
-  const canDeposit = available && address && amount.trim() !== '' && !busy && shares > 0n
-
-  const handleMax = () => {
-    setAmount(tokenToInput(shares))
-  }
+  const available = account.shares
+  const locked = Number(account.lockUntil) * 1000 > Date.now()
+  const amount = tryParse(value)
+  const tooMuch = amount !== null && amount > available
+  const secondary = secondaryCurrencyFor(primaryCurrency, locale)
+  const vault = vaults?.[target] ?? null
+  const apy = vault?.apy ?? 0
+  const pct = (x: number) => new Intl.NumberFormat(intlLocale(locale), { style: 'percent', maximumFractionDigits: 1 }).format(x)
+  // Simple one-year estimate at the vault's (simulated) APY.
+  const yearly = amount !== null ? (amount * BigInt(Math.round(apy * 10_000))) / 10_000n : 0n
+  const blocked = locked || vaults === null
 
   const handleDeposit = async () => {
-    setError(null)
-    if (!address) return
-    try {
-      const value = parseToken(amount)
-      if (value <= 0n) {
-        setError(t('errors.invalidAmount'))
-        return
-      }
-      if (value > shares) {
-        setError(t('errors.insufficientShares'))
-        return
-      }
-      await onDeposit(value)
-      setAmount('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('errors.generic'))
-    }
+    if (amount === null || tooMuch) return
+    if (await onDeposit(amount, target)) setValue('')
   }
 
+  const buttonLabel = busy
+    ? `${t('common.loading')}...`
+    : amount === null
+      ? t('withdraw.enterAmount')
+      : t('yield.buttonAmount', { amount: formatMoney(amount, 'usdt', rates, locale), vault: t(VAULT[target].name) })
+
   return (
-    <Card className="rounded-2xl shadow-none relative" style={{ perspective: 1000 }}>
-      <AnimatePresence mode="wait">
-        {!showInfo ? (
-          <motion.div
-            key="front"
-            initial={{ rotateY: 90, opacity: 0 }}
-            animate={{ rotateY: 0, opacity: 1 }}
-            exit={{ rotateY: -90, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-base font-medium">
-                <div className="flex items-center gap-2">
-                  <SparklesIcon className="size-5 text-gold-ink" />
-                  {t('yield.depositTitle')}
-                </div>
-                <Button variant="ghost" size="icon-sm" onClick={() => setShowInfo(true)}>
-                  <InfoIcon className="size-4 text-muted-foreground" />
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-4 py-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">{t('yield.availableSavings')}</p>
-                  <p className="mt-0.5 flex items-center gap-1.5 text-lg font-semibold tabular-nums">
-                    <TokenIcon token="usdt" size={22} />
-                    {formatMoney(shares, 'usdt', rates, locale)}
-                  </p>
-                </div>
-                <Button variant="outline" size="sm" onClick={handleMax} disabled={shares === 0n || busy}>
-                  {t('yield.max')}
-                </Button>
-              </div>
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      {/* Visual panel */}
+      <div className="relative isolate flex min-h-56 flex-col justify-end overflow-hidden rounded-2xl lg:min-h-[440px]">
+        <img src="/landing/agents.jpg" alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" />
+        <div className="bg-[#0b0b0b]/70 p-6 text-white backdrop-blur-[2px]">
+          <p className="font-mono text-[10px] font-bold tracking-[0.24em] text-white/70 uppercase">{t('yield.panelLabel')}</p>
+          <p className="mt-2 font-serif text-2xl leading-tight font-medium">{t('yield.panelTitle')}</p>
+          <p className="mt-2 text-sm leading-relaxed text-white/80">{t('yield.howBody')}</p>
+        </div>
+      </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('yield.amount')}</label>
-                <div className="relative">
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder={t('common.amountPlaceholder')}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    disabled={busy}
-                    className="pr-16"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                    tUSDT
-                  </span>
-                </div>
-              </div>
+      {/* Action card */}
+      <div className="rounded-2xl border bg-card p-5 sm:p-6">
+        <Tabs value={target} onValueChange={(v) => setTarget(v as YieldTarget)} className="items-center">
+          <TabsList className="rounded-full">
+            {YIELD_TARGETS.map((key) => (
+              <TabsTrigger key={key} value={key} className="rounded-full px-4">
+                {t(VAULT[key].tab)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-              <div className="rounded-xl border bg-muted/40 p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{t('yield.protocol')}</span>
-                  <span className="font-medium">{t(VAULT_NAME_KEY[yieldTarget])}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <span className="text-muted-foreground">{t('yield.vault')}</span>
-                  <span className="font-mono text-xs">{vaultAddress ? shortAddr(vaultAddress) : '-'}</span>
-                </div>
-              </div>
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <TokenIcon token="usdt" size={36} />
+            <div>
+              <p className="font-semibold">{t('withdraw.fromSave')}</p>
+              <p className="font-mono text-xs text-muted-foreground">tUSDT</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold tabular-nums">{formatMoney(available, primaryCurrency, rates, locale)}</p>
+            <p className="text-xs text-muted-foreground tabular-nums">~ {formatMoney(available, secondary, rates, locale)}</p>
+          </div>
+        </div>
 
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              {!available && (
-                <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  {t('yield.targetUnavailable')}
-                </p>
-              )}
-
-              <Button
-                className={cn('w-full', yieldTarget === 'growth' ? 'bg-gold-ink hover:bg-gold-ink/90' : '')}
-                disabled={!canDeposit}
-                onClick={() => void handleDeposit()}
+        <div className={cn('mt-5 rounded-2xl border bg-muted/30 p-4', tooMuch && 'border-destructive/50')}>
+          <label htmlFor="deposit-amount" className="text-sm text-muted-foreground">
+            {t('withdraw.amountLabel')}
+          </label>
+          <div className="mt-1 flex items-center gap-3">
+            <input
+              id="deposit-amount"
+              value={value}
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="0"
+              disabled={busy || blocked}
+              onChange={(e) => setValue(e.target.value.replace(',', '.'))}
+              className="min-w-0 flex-1 bg-transparent text-4xl font-semibold tracking-tight tabular-nums outline-none placeholder:text-muted-foreground/50 disabled:opacity-60"
+            />
+            <span className="flex shrink-0 items-center gap-2 rounded-full border bg-card py-1.5 pr-3 pl-1.5 text-sm font-medium">
+              <TokenIcon token="usdt" size={24} />
+              tUSDT
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span className="tabular-nums">~ {formatMoney(amount ?? 0n, secondary, rates, locale)}</span>
+            <span className="flex items-center gap-2">
+              <span className="tabular-nums">{t('withdraw.available', { amount: formatMoney(available, 'usdt', rates, locale) })}</span>
+              <button
+                type="button"
+                disabled={busy || blocked || available === 0n}
+                onClick={() => setValue(tokenToInput(available))}
+                className="rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-primary-ink uppercase transition-colors hover:bg-primary/20 disabled:opacity-50"
               >
-                {busy ? (
-                  <Loader2Icon className="mr-2 size-4 animate-spin" />
-                ) : (
-                  <ArrowRightIcon className="mr-2 size-4" />
-                )}
-                {busy ? t('common.loading') : t('yield.depositButton')}
-              </Button>
+                {t('withdraw.max')}
+              </button>
+            </span>
+          </div>
+        </div>
 
-              <p className="text-xs text-muted-foreground">{t('yield.depositHint')}</p>
-            </CardContent>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="back"
-            initial={{ rotateY: -90, opacity: 0 }}
-            animate={{ rotateY: 0, opacity: 1 }}
-            exit={{ rotateY: 90, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex min-h-[380px] flex-col"
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-base font-medium">
-                <span>{t('yield.howTitle')}</span>
-                <Button variant="ghost" size="icon-sm" onClick={() => setShowInfo(false)}>
-                  <XIcon className="size-4" />
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col justify-center px-6 pb-10 pt-2">
-              <p className="text-[15px] leading-8 text-muted-foreground text-center px-2">
-                {t('yield.howBody')}
-              </p>
-            </CardContent>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </Card>
+        <div className="-my-2.5 flex justify-center" aria-hidden="true">
+          <span className="relative z-10 flex size-8 items-center justify-center rounded-full border bg-card">
+            <ArrowDownIcon className="size-4 text-muted-foreground" />
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-2xl border p-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <img src={VAULT_LOGO[target]} alt="" className="size-9 shrink-0 rounded-full" />
+            <div className="min-w-0">
+              <p className="truncate font-semibold">{t(VAULT[target].name)}</p>
+              <p className="truncate text-xs text-muted-foreground">{t(VAULT[target].route)}</p>
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="font-semibold tabular-nums">{t('yield.apyValue', { apy: pct(apy) })}</p>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {t('yield.estYearly', { amount: formatMoney(yearly, primaryCurrency, rates, locale) })}
+            </p>
+          </div>
+        </div>
+
+        {tooMuch && <p className="mt-3 text-sm text-destructive">{t('errors.insufficientShares')}</p>}
+
+        <Button
+          size="lg"
+          className="mt-5 h-12 w-full rounded-full text-base"
+          disabled={busy || blocked || amount === null || tooMuch}
+          onClick={() => void handleDeposit()}
+        >
+          {buttonLabel}
+        </Button>
+
+        <div className="mt-3 space-y-2">
+          {locked && (
+            <p className="flex items-center gap-2 text-xs font-medium text-accent-foreground">
+              <LockIcon className="size-4 shrink-0" />
+              {t('withdraw.lockedReason', { date: formatDate(account.lockUntil, locale) })}
+            </p>
+          )}
+          {vaults === null && <p className="text-xs text-destructive">{t('yield.targetUnavailable')}</p>}
+          <p className="text-xs text-muted-foreground">{t('yield.depositHint')}</p>
+        </div>
+      </div>
+    </div>
   )
 }
