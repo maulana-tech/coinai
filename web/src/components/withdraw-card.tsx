@@ -1,133 +1,182 @@
 import { useState } from 'react'
-import { LockIcon } from 'lucide-react'
+import { ArrowDownIcon, LockIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { TokenIcon } from '@/components/brand/token-icon'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
 import { parseToken, tokenToInput } from '@/lib/format'
-import { formatDate, useT } from '@/lib/i18n'
-import { useSettings } from '@/lib/settings'
+import { formatDate, formatMoney, useT, type MessageKey } from '@/lib/i18n'
+import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
 import type { CoinAIAccount } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
 
-type WithdrawCardProps = {
-  account: CoinAIAccount
+type Pocket = 'spend' | 'savings'
+
+const PANEL: Record<Pocket, { image: string; label: MessageKey; title: MessageKey; body: MessageKey }> = {
+  spend: { image: '/landing/hero.jpg', label: 'withdraw.panelSpendLabel', title: 'withdraw.panelSpendTitle', body: 'withdraw.panelSpendBody' },
+  savings: { image: '/landing/save.jpg', label: 'withdraw.panelSaveLabel', title: 'withdraw.panelSaveTitle', body: 'withdraw.panelSaveBody' },
 }
 
-export function WithdrawCard({ account }: WithdrawCardProps) {
+// Parses what the user typed; null while empty or not a valid amount (no toast while typing).
+function tryParse(raw: string): bigint | null {
+  try {
+    const v = parseToken(raw)
+    return v > 0n ? v : null
+  } catch {
+    return null
+  }
+}
+
+export function WithdrawCard({ account }: { account: CoinAIAccount }) {
   const t = useT()
   const { address } = useWallet()
-  const { busy, runAction } = useAppState()
-  const { locale } = useSettings()
-  const [spendValue, setSpendValue] = useState('')
-  const [savingsValue, setSavingsValue] = useState('')
+  const { busy, rates, runAction } = useAppState()
+  const { locale, primaryCurrency } = useSettings()
+  const [pocket, setPocket] = useState<Pocket>('spend')
+  const [value, setValue] = useState('')
   const anyBusy = busy !== null
 
   const locked = Number(account.lockUntil) * 1000 > Date.now()
-  const loadingLabel = `${t('common.loading')}...`
+  const available = pocket === 'spend' ? account.spend : account.shares
+  const blocked = pocket === 'savings' && locked
+  const amount = tryParse(value)
+  const tooMuch = amount !== null && amount > available
+  const secondary = secondaryCurrencyFor(primaryCurrency, locale)
+  const panel = PANEL[pocket]
 
-  const parseAmount = (raw: string): bigint | null => {
-    try {
-      const amount = parseToken(raw)
-      if (amount <= 0n) throw new Error('invalid amount')
-      return amount
-    } catch {
+  const switchPocket = (next: string) => {
+    setPocket(next as Pocket)
+    setValue('')
+  }
+
+  const handleWithdraw = async () => {
+    if (!address) return
+    if (amount === null) {
       toast.error(t('errors.invalidAmount'))
-      return null
+      return
     }
+    const ok =
+      pocket === 'spend'
+        ? await runAction('spend', 'success.withdrewSpend', () => coinai.withdrawSpend(address, amount))
+        : await runAction('savings', 'success.withdrewSavings', () => coinai.withdrawSavings(address, amount))
+    if (ok) setValue('')
   }
 
-  const handleWithdrawSpend = async () => {
-    const amount = parseAmount(spendValue)
-    if (amount === null || !address) return
-    const ok = await runAction('spend', 'success.withdrewSpend', () =>
-      coinai.withdrawSpend(address, amount),
-    )
-    if (ok) setSpendValue('')
-  }
-
-  const handleWithdrawSavings = async () => {
-    const shares = parseAmount(savingsValue)
-    if (shares === null || !address) return
-    const ok = await runAction('savings', 'success.withdrewSavings', () =>
-      coinai.withdrawSavings(address, shares),
-    )
-    if (ok) setSavingsValue('')
-  }
+  const buttonLabel =
+    busy === pocket
+      ? `${t('common.loading')}...`
+      : amount === null
+        ? t('withdraw.enterAmount')
+        : t('withdraw.buttonAmount', { amount: formatMoney(amount, 'usdt', rates, locale) })
 
   return (
-    <Card className="rounded-2xl shadow-none">
-      <CardHeader>
-        <CardTitle>{t('withdraw.title')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="spend">
-          <TabsList className="w-full">
-            <TabsTrigger value="spend">{t('withdraw.spendTab')}</TabsTrigger>
-            <TabsTrigger value="savings">{t('withdraw.saveTab')}</TabsTrigger>
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      {/* Visual panel */}
+      <div className="relative isolate flex min-h-56 flex-col justify-end overflow-hidden rounded-2xl lg:min-h-[440px]">
+        <img src={panel.image} alt="" className="absolute inset-0 -z-10 h-full w-full object-cover" />
+        <div className="bg-[#0b0b0b]/70 p-6 text-white backdrop-blur-[2px]">
+          <p className="font-mono text-[10px] font-bold tracking-[0.24em] text-white/70 uppercase">{t(panel.label)}</p>
+          <p className="mt-2 font-serif text-2xl leading-tight font-medium">{t(panel.title)}</p>
+          <p className="mt-2 text-sm leading-relaxed text-white/80">{t(panel.body)}</p>
+        </div>
+      </div>
+
+      {/* Action card */}
+      <div className="rounded-2xl border bg-card p-5 sm:p-6">
+        <Tabs value={pocket} onValueChange={switchPocket} className="items-center">
+          <TabsList className="rounded-full">
+            <TabsTrigger value="spend" className="rounded-full px-5">
+              {t('withdraw.spendTab')}
+            </TabsTrigger>
+            <TabsTrigger value="savings" className="rounded-full px-5">
+              {t('withdraw.saveTab')}
+            </TabsTrigger>
           </TabsList>
-          <TabsContent value="spend" className="mt-3 space-y-3">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <TokenIcon
-                  token="usdt"
-                  size={26}
-                  className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
-                />
-                <Input
-                  value={spendValue}
-                  placeholder={t('common.amountPlaceholder')}
-                  inputMode="decimal"
-                  className="pl-12 tabular-nums"
-                  disabled={anyBusy}
-                  onChange={(e) => setSpendValue(e.target.value)}
-                />
-              </div>
-              <Button
-                variant="outline"
-                disabled={anyBusy}
-                onClick={() => setSpendValue(tokenToInput(account.spend))}
+        </Tabs>
+
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <TokenIcon token="usdt" size={36} />
+            <div>
+              <p className="font-semibold">{t(pocket === 'spend' ? 'withdraw.fromSpend' : 'withdraw.fromSave')}</p>
+              <p className="font-mono text-xs text-muted-foreground">tUSDT</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold tabular-nums">{formatMoney(available, primaryCurrency, rates, locale)}</p>
+            <p className="text-xs text-muted-foreground tabular-nums">~ {formatMoney(available, secondary, rates, locale)}</p>
+          </div>
+        </div>
+
+        <div className={cn('mt-5 rounded-2xl border bg-muted/30 p-4', tooMuch && 'border-destructive/50')}>
+          <label htmlFor="withdraw-amount" className="text-sm text-muted-foreground">
+            {t('withdraw.amountLabel')}
+          </label>
+          <div className="mt-1 flex items-center gap-3">
+            <input
+              id="withdraw-amount"
+              value={value}
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="0"
+              disabled={anyBusy || blocked}
+              onChange={(e) => setValue(e.target.value.replace(',', '.'))}
+              className="min-w-0 flex-1 bg-transparent text-4xl font-semibold tracking-tight tabular-nums outline-none placeholder:text-muted-foreground/50 disabled:opacity-60"
+            />
+            <span className="flex shrink-0 items-center gap-2 rounded-full border bg-card py-1.5 pr-3 pl-1.5 text-sm font-medium">
+              <TokenIcon token="usdt" size={24} />
+              tUSDT
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span className="tabular-nums">~ {formatMoney(amount ?? 0n, secondary, rates, locale)}</span>
+            <span className="flex items-center gap-2">
+              <span className="tabular-nums">
+                {t('withdraw.available', { amount: formatMoney(available, 'usdt', rates, locale) })}
+              </span>
+              <button
+                type="button"
+                disabled={anyBusy || blocked || available === 0n}
+                onClick={() => setValue(tokenToInput(available))}
+                className="rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-primary-ink uppercase transition-colors hover:bg-primary/20 disabled:opacity-50"
               >
                 {t('withdraw.max')}
-              </Button>
-            </div>
-            <Button
-              className="w-full"
-              onClick={() => void handleWithdrawSpend()}
-              disabled={anyBusy || spendValue.trim() === ''}
-            >
-              {busy === 'spend' ? loadingLabel : t('withdraw.button')}
-            </Button>
-          </TabsContent>
-          <TabsContent value="savings" className="mt-3 space-y-3">
-            <div className="flex gap-2">
-              <Input
-                value={savingsValue}
-                placeholder={t('withdraw.sharesPlaceholder')}
-                inputMode="decimal"
-                className="tabular-nums"
-                disabled={anyBusy || locked}
-                onChange={(e) => setSavingsValue(e.target.value)}
-              />
-              <Button
-                variant="outline"
-                disabled={anyBusy || locked}
-                onClick={() => setSavingsValue(tokenToInput(account.shares))}
-              >
-                {t('withdraw.max')}
-              </Button>
-            </div>
-            <Button
-              className="w-full"
-              onClick={() => void handleWithdrawSavings()}
-              disabled={anyBusy || locked || savingsValue.trim() === ''}
-            >
-              {busy === 'savings' ? loadingLabel : t('withdraw.button')}
-            </Button>
+              </button>
+            </span>
+          </div>
+        </div>
+
+        <div className="-my-2.5 flex justify-center" aria-hidden="true">
+          <span className="relative z-10 flex size-8 items-center justify-center rounded-full border bg-card">
+            <ArrowDownIcon className="size-4 text-muted-foreground" />
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-2xl border p-4 text-sm">
+          <span className="text-muted-foreground">{t('withdraw.destination')}</span>
+          <span className="font-mono text-xs">{address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '-'}</span>
+        </div>
+
+        {tooMuch && (
+          <p className="mt-3 text-sm text-destructive">
+            {t(pocket === 'spend' ? 'errors.insufficientSpendable' : 'errors.insufficientShares')}
+          </p>
+        )}
+
+        <Button
+          size="lg"
+          className="mt-5 h-12 w-full rounded-full text-base"
+          disabled={anyBusy || blocked || amount === null || tooMuch}
+          onClick={() => void handleWithdraw()}
+        >
+          {buttonLabel}
+        </Button>
+
+        {pocket === 'savings' && (
+          <div className="mt-3 space-y-2">
             {locked && (
               <p className="flex items-center gap-2 text-xs font-medium text-accent-foreground">
                 <LockIcon className="size-4 shrink-0" />
@@ -135,9 +184,9 @@ export function WithdrawCard({ account }: WithdrawCardProps) {
               </p>
             )}
             <p className="text-xs text-muted-foreground">{t('withdraw.sharesHint')}</p>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
