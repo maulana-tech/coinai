@@ -1,7 +1,7 @@
 // tUSDT (MockUSDT) utilities — 6-decimal test stablecoin on BSC Testnet, see evm/src/MockUSDT.sol
 
-import { Contract, JsonRpcProvider, type ContractRunner } from 'ethers'
-import { RPC_URL, TOKEN_ADDRESS, COINAI_ADDRESS } from '@/lib/config'
+import { Contract, type ContractRunner } from 'ethers'
+import { TOKEN_ADDRESS, COINAI_ADDRESS, readProvider } from '@/lib/config'
 import { getEthersSigner } from '@/lib/ethers-wagmi'
 
 const TOKEN_ABI = [
@@ -21,7 +21,7 @@ export const TOKEN_DECIMALS = 6
 export const TOKEN_SCALE = 10n ** 6n
 
 export function tokenContract(runner?: ContractRunner): Contract {
-  const provider = runner ?? new JsonRpcProvider(RPC_URL)
+  const provider = runner ?? readProvider
   return new Contract(TOKEN_ADDRESS, TOKEN_ABI, provider)
 }
 
