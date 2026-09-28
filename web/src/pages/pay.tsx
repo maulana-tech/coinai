@@ -11,6 +11,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Input } from '@/components/ui/input'
 import { useAppState } from '@/lib/app-state'
 import { isValidRecipientAddress } from '@/lib/address'
+import { autopilot } from '@/lib/agent-api'
 import { coinai } from '@/lib/coinai'
 import { explorerTxUrl } from '@/lib/config'
 import { errorKey } from '@/lib/errors'
@@ -104,7 +105,10 @@ function PayCard({ recipient }: { recipient: string }) {
     const result = await runAction('paylink', 'success.linkPaid', () =>
       coinai.pay(address, recipient, parsed),
     )
-    if (result) setPaid({ amount: parsed, hash: result.hash })
+    if (result) {
+      setPaid({ amount: parsed, hash: result.hash })
+      autopilot.nudge(recipient) // recipient's agents invest the new savings (server re-checks on-chain)
+    }
   }
 
   if (paid !== null) {
