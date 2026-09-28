@@ -169,6 +169,11 @@ export const coinaiEvm: CoinAIService = {
     }
   },
 
+  async getStats(user: string) {
+    const s = await reader().statsOf(user)
+    return { totalReceived: BigInt(s.totalReceived), paymentCount: Number(s.paymentCount), lastPaymentAt: BigInt(s.lastPaymentAt) }
+  },
+
   async setAgent(_user: string, agent: string, minSplitBps: number, maxSplitBps: number, expiry: bigint) {
     const c = await signerContract()
     await simulate(c.setAgent.staticCall(agent, minSplitBps, maxSplitBps, expiry))
