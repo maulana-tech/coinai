@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import { env } from './chain.js'
 import { kv } from './kv.js'
+import type { ReportEmail } from './email.js'
 import type { Locale } from './swarm.js'
 
 export type Subscription = { email?: string; telegramChatId?: number; locale: Locale }
@@ -29,26 +30,28 @@ export function sendTyping(chatId: number) {
 }
 
 // Gmail SMTP with an App Password (Google Account → Security → App passwords).
-export async function sendEmail(to: string, subject: string, text: string) {
+export async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+  html?: string,
+  attachments?: { filename: string; content: Buffer; contentType: string }[],
+) {
   const transport = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: env('GMAIL_USER'), pass: env('GMAIL_APP_PASSWORD') },
   })
-  await transport.sendMail({ from: `coinAI <${env('GMAIL_USER')}>`, to, subject, text })
-}
-
-const SUBJECT: Record<Locale, string> = {
-  en: 'Your coinAI daily report',
-  id: 'Laporan harian coinAI kamu',
-  zh: '您的 coinAI 每日报告',
+  await transport.sendMail({ from: `coinAI <${env('GMAIL_USER')}>`, to, subject, text, html, attachments })
 }
 
 /** Delivers to every channel the user subscribed to; returns per-channel errors. */
-export async function deliver(sub: Subscription, text: string, appUrl?: string): Promise<string[]> {
-  const full = appUrl ? `${text}\n\n${appUrl}` : text
+export async function deliver(sub: Subscription, text: string, email: ReportEmail, pdf?: Uint8Array | null): Promise<string[]> {
   const jobs: Promise<unknown>[] = []
-  if (sub.telegramChatId) jobs.push(sendTelegram(sub.telegramChatId, full))
-  if (sub.email) jobs.push(sendEmail(sub.email, SUBJECT[sub.locale], full))
+  if (sub.telegramChatId) jobs.push(sendTelegram(sub.telegramChatId, text))
+  const attachments = pdf
+    ? [{ filename: `coinAI-report-${new Date().toISOString().slice(0, 10)}.pdf`, content: Buffer.from(pdf), contentType: 'application/pdf' }]
+    : undefined
+  if (sub.email) jobs.push(sendEmail(sub.email, email.subject, email.text, email.html, attachments))
   const results = await Promise.allSettled(jobs)
   return results.flatMap((r) => (r.status === 'rejected' ? [String(r.reason)] : []))
 }
