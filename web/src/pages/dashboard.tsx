@@ -87,7 +87,7 @@ export function Dashboard() {
           </Button>
         </div>
       ) : (
-        <BalanceHero account={account} activity={activity} loading={loading} rates={rates} />
+        <BalanceHero account={account} loading={loading} rates={rates} />
       )}
       {loading && <Skeleton className="h-40 w-full rounded-2xl" />}
       {account !== null && (
