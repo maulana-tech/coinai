@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTheme } from 'next-themes'
-import { CopyIcon, ExternalLinkIcon } from 'lucide-react'
+import { CopyIcon, ExternalLinkIcon, KeyRoundIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -19,9 +20,116 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { agentApi, type LlmKey } from '@/lib/agent-api'
 import { CONTRACT_ID, EXPLORER_CONTRACT_URL } from '@/lib/config'
-import { useT } from '@/lib/i18n'
+import { formatDateTime, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
+import { useWallet } from '@/lib/wallet'
+
+const KEY_ERRORS: Record<string, MessageKey> = {
+  invalid_key: 'settings.byokInvalid',
+  key_rejected: 'settings.byokRejected',
+  duplicate_key: 'settings.byokDuplicate',
+  too_many_keys: 'settings.byokTooMany',
+}
+
+// BYOK: the wallet's own OpenRouter keys are tried before the shared server key, and a key
+// that hits its limit is skipped for the next one. Keys are encrypted server-side.
+function LlmKeysCard({ address }: { address: string }) {
+  const t = useT()
+  const { locale } = useSettings()
+  const [keys, setKeys] = useState<LlmKey[] | null>(null)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const run = async (fn: () => Promise<{ keys: LlmKey[] }>, success?: MessageKey) => {
+    setBusy(true)
+    try {
+      setKeys((await fn()).keys)
+      if (success) toast.success(t(success))
+      return true
+    } catch (e) {
+      const code = e instanceof Error ? e.message : String(e)
+      toast.error(KEY_ERRORS[code] ? t(KEY_ERRORS[code]) : code)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const add = async () => {
+    if (await run(() => agentApi.addLlmKey(address, draft.trim()), 'settings.byokAdded')) setDraft('')
+  }
+
+  return (
+    <Card className="rounded-2xl shadow-none">
+      <CardHeader>
+        <CardTitle>{t('settings.byokTitle')}</CardTitle>
+        <CardDescription>{t('settings.byokBody')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {keys === null ? (
+          <Button variant="outline" disabled={busy} onClick={() => void run(() => agentApi.llmKeys(address))}>
+            <KeyRoundIcon className="mr-1.5 size-4" />
+            {t('settings.byokManage')}
+          </Button>
+        ) : (
+          <>
+            {keys.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('settings.byokEmpty')}</p>
+            ) : (
+              <ul className="divide-y rounded-xl border">
+                {keys.map((k, i) => (
+                  <li key={k.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                    <span className="w-5 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
+                    <span className="font-mono text-xs">sk-or-…{k.tail}</span>
+                    <span className="flex-1 text-xs text-muted-foreground">{formatDateTime(new Date(k.addedAt), locale)}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t('settings.byokRemove')}
+                      disabled={busy}
+                      onClick={() => void run(() => agentApi.removeLlmKey(address, k.id))}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void add()
+              }}
+            >
+              <Input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={draft}
+                placeholder="sk-or-v1-…"
+                aria-label={t('settings.byokPlaceholder')}
+                onChange={(e) => setDraft(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <Button type="submit" disabled={busy || !draft.trim()}>
+                {t('settings.byokAdd')}
+              </Button>
+            </form>
+            <p className="text-xs text-muted-foreground">
+              {t('settings.byokHint')}{' '}
+              <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer" className="text-primary-ink hover:underline">
+                openrouter.ai/settings/keys
+              </a>
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 function shortContract(id: string): string {
   return `${id.slice(0, 4)}...${id.slice(-4)}`
@@ -48,6 +156,7 @@ export function SettingsPage() {
   const t = useT()
   const { locale, setLocale, primaryCurrency, setPrimaryCurrency } = useSettings()
   const { theme, setTheme } = useTheme()
+  const { address } = useWallet()
 
   const copyContract = async () => {
     await navigator.clipboard.writeText(CONTRACT_ID)
@@ -117,6 +226,7 @@ export function SettingsPage() {
           </SettingRow>
         </CardContent>
       </Card>
+      {address && <LlmKeysCard key={address} address={address} />}
       <Card className="rounded-2xl shadow-none">
         <CardHeader>
           <CardTitle>{t('settings.network')}</CardTitle>
