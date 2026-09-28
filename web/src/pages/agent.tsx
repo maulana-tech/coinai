@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { agentApi, autopilot, hasAgentSession, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
+import { agentApi, isAgentActive as isActive, autopilot, hasAgentSession, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
 import { AGENT_ROLES, agentRoleFor } from '@/lib/agent-roles'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
@@ -51,14 +51,6 @@ const VAULT_NAME_KEY: Record<YieldTarget, MessageKey> = {
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-function isActive(policy: AgentPolicy | null): boolean {
-  return (
-    !!policy?.agent &&
-    !!AGENT_ADDRESS &&
-    policy.agent.toLowerCase() === AGENT_ADDRESS.toLowerCase() &&
-    Number(policy.expiry) * 1000 > Date.now()
-  )
-}
 
 // ─── Permission ──────────────────────────────────────────────────────────────
 
