@@ -1,5 +1,6 @@
-import { Contract, JsonRpcProvider, Wallet, formatUnits, getAddress } from 'ethers'
+import { Contract, Wallet, formatUnits, getAddress } from 'ethers'
 import { DEPLOYMENT } from '../../shared/deployment.js'
+import { CALL_RPC, rpcProvider } from '../../shared/rpc.js'
 import { TARGETS, type Policy, type Proposal, type Target } from './guard.js'
 
 const TOKEN_DECIMALS = 6 // tUSDT, see evm/src/MockUSDT.sol
@@ -28,10 +29,7 @@ export function env(name: string): string {
   return v
 }
 
-const provider = () =>
-  new JsonRpcProvider(process.env.BSC_RPC_URL || 'https://bsc-testnet-rpc.publicnode.com', 97, {
-    staticNetwork: true,
-  })
+const provider = () => rpcProvider(process.env.BSC_RPC_URL || CALL_RPC)
 const coinaiAddress = () => process.env.COINAI_ADDRESS || process.env.VITE_COINAI_ADDRESS || DEPLOYMENT.coinai
 export const agentWallet = () => new Wallet(env('AGENT_PRIVATE_KEY'), provider())
 export const explorerTx = (hash: string) => `https://testnet.bscscan.com/tx/${hash}`

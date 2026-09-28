@@ -18,9 +18,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { agentApi, autopilot, hasAgentSession, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
+import { agentApi, isAgentActive as isActive, autopilot, hasAgentSession, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
 import { AGENT_ROLES, agentRoleFor } from '@/lib/agent-roles'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
@@ -51,14 +50,6 @@ const VAULT_NAME_KEY: Record<YieldTarget, MessageKey> = {
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-function isActive(policy: AgentPolicy | null): boolean {
-  return (
-    !!policy?.agent &&
-    !!AGENT_ADDRESS &&
-    policy.agent.toLowerCase() === AGENT_ADDRESS.toLowerCase() &&
-    Number(policy.expiry) * 1000 > Date.now()
-  )
-}
 
 // ─── Permission ──────────────────────────────────────────────────────────────
 
@@ -122,18 +113,39 @@ function PermissionCard({ address }: { address: string }) {
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-5">
-        <p className="text-sm text-muted-foreground">{status}</p>
-        {active && autopilotOn && (
-          <p className="flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm">
-            <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
-            {t('agent.autopilotOn')}
+      <CardContent className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="flex flex-col gap-4">
+          {active && policy ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agent.splitAllowed')}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums">
+                  {policy.minSplitBps / 100}% – {policy.maxSplitBps / 100}%
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agentRole.expiresLabel')}</p>
+                <p className="mt-1 text-lg font-semibold">{formatDate(policy.expiry, locale)}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{status}</p>
+          )}
+          {active && autopilotOn && (
+            <p className="flex items-start gap-2 rounded-xl border bg-muted/40 px-3 py-2.5 text-sm">
+              <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+              {t('agent.autopilotOn')}
+            </p>
+          )}
+          <p className="mt-auto flex items-start gap-2 border-t pt-4 text-xs text-muted-foreground">
+            <ShieldCheckIcon className="mt-0.5 size-3.5 shrink-0" />
+            {t('agent.guardrailNote')}
           </p>
-        )}
+        </div>
         {!AGENT_ADDRESS ? (
           <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">{t('agent.notConfigured')}</p>
         ) : (
-          <>
+          <div className="space-y-5 lg:border-l lg:pl-6">
             <div className="space-y-3">
               <div className="flex items-baseline justify-between gap-2">
                 <p className="text-sm font-medium">{t('agent.rangeLabel')}</p>
@@ -181,13 +193,8 @@ function PermissionCard({ address }: { address: string }) {
                 </Button>
               )}
             </div>
-          </>
+          </div>
         )}
-        <Separator />
-        <p className="flex items-start gap-2 text-xs text-muted-foreground">
-          <ShieldCheckIcon className="mt-0.5 size-3.5 shrink-0" />
-          {t('agent.guardrailNote')}
-        </p>
       </CardContent>
     </Card>
   )
@@ -268,7 +275,6 @@ function RunCard({
         <CardTitle>{t('agent.runTitle')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">{t('agent.runCaption')}</p>
         {remoteRunning && !localRunning && (
           <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">{t('agent.stillRunning')}</p>
         )}
@@ -281,7 +287,9 @@ function RunCard({
             <p className="text-xs text-muted-foreground">
               {t('agent.lastRun', { time: formatDateTime(new Date(run.at), locale) })}
             </p>
-            {run.steps.length > 0 && <ul className="divide-y">{run.steps.map((s, i) => <StepRow key={i} step={s} />)}</ul>}
+            {run.steps.length > 0 && (
+              <ul className="max-h-96 divide-y overflow-y-auto pr-1">{run.steps.map((s, i) => <StepRow key={i} step={s} />)}</ul>
+            )}
             <div className="rounded-xl border bg-muted/40 p-3">
               <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agent.reportTitle')}</p>
               <p className="mt-1 text-sm whitespace-pre-line">{run.report}</p>
@@ -439,6 +447,10 @@ function TeamCard() {
               <span className="text-xs text-muted-foreground">{t(r.tagline)}</span>
             </Link>
           ))}
+          <div className="flex flex-col justify-center gap-2 rounded-2xl border border-dashed bg-muted/30 p-4">
+            <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agent.flowLabel')}</span>
+            <span className="text-xs leading-relaxed text-muted-foreground">{t('agent.runCaption')}</span>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -491,7 +503,7 @@ export function AgentPage() {
       <PageHeader title={t('nav.agent')} caption={t('page.agentCaption')} />
       <PermissionCard address={address} />
       <TeamCard />
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <RunCard address={address} run={run} onRun={handleRun} remoteRunning={remoteRunning} />
         <ProjectionCard address={address} />
       </div>

@@ -1,4 +1,5 @@
 import { DEPLOYMENT } from '../../shared/deployment.js'
+import { CALL_RPC, LOGS_RPC, rpcProvider } from '../../shared/rpc.js'
 
 // BNB Smart Chain Testnet configuration
 export const CHAIN_ID = 97
@@ -6,6 +7,10 @@ export const CHAIN_ID = 97
 export const RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://bsc-testnet-rpc.publicnode.com'
 export const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL ?? 'https://testnet.bscscan.com'
 // Zalalena needs only an address + captcha: no mainnet balance or account (the official one requires 0.002 BNB on mainnet)
+// Shared read-only providers (see shared/rpc.ts): contract/balance reads on the BNB Chain RPC,
+// event history (getLogs) on publicnode, the only public node that serves it.
+export const readProvider = rpcProvider(import.meta.env.VITE_CALL_RPC_URL ?? CALL_RPC)
+export const logsProvider = rpcProvider(import.meta.env.VITE_RPC_URL ?? LOGS_RPC)
 export const TBNB_FAUCET_URL = 'https://faucet.zalalena.com/bsc'
 
 // Contract addresses default to the live deployment (shared/deployment.ts). An explicitly empty

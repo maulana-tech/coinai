@@ -1,6 +1,6 @@
 import { Contract, EventLog, JsonRpcProvider, ZeroHash, zeroPadValue } from 'ethers'
 import { agentApi, hasAgentSession } from '@/lib/agent-api'
-import { CONTRACT_ID, DEPLOY_BLOCK, EVM_RPC_URL, TOKEN_ADDRESS } from '@/lib/config'
+import { CONTRACT_ID, DEPLOY_BLOCK, logsProvider, TOKEN_ADDRESS } from '@/lib/config'
 import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
 
 export type ActivityItem = {
@@ -157,7 +157,7 @@ function mergeAgentActions(items: ActivityItem[]): ActivityItem[] {
 
 async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
   if (CONTRACT_ID === '') return []
-  const provider = new JsonRpcProvider(EVM_RPC_URL, undefined, { staticNetwork: true })
+  const provider = logsProvider
   const c = new Contract(CONTRACT_ID, SAVE_EVM_ABI, provider)
 
   const latest = await provider.getBlockNumber()

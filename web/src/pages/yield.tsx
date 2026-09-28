@@ -20,25 +20,15 @@ export function YieldPage() {
 
   if (!address) return <ConnectPrompt />
 
-  const handleDeposit = async (amount: bigint) => {
-    if (!account) return
+  const handleDeposit = async (amount: bigint, target: YieldTarget) => {
     const result = await runAction('yield-deposit', 'success.yieldDeposited', () =>
-      coinai.investSavings(address, amount, account.yieldTarget),
+      coinai.investSavings(address, amount, target),
     )
     if (result) {
       await refresh()
       await refreshYield()
     }
-  }
-
-  const handleSelectTarget = async (target: YieldTarget) => {
-    const result = await runAction(`target-${target}`, 'success.yieldTargetSaved', () =>
-      coinai.setYieldTarget(address, target),
-    )
-    if (result) {
-      await refresh()
-      await refreshYield()
-    }
+    return Boolean(result)
   }
 
   return (
@@ -67,13 +57,11 @@ export function YieldPage() {
       />
       {account && (
         <YieldDepositCard
-          shares={account.shares}
-          yieldTarget={account.yieldTarget}
-          vaultAddress={vaults?.[account.yieldTarget].address || null}
+          account={account}
+          vaults={vaults}
           rates={rates}
           onDeposit={handleDeposit}
           busy={busy === 'yield-deposit'}
-          available={vaults !== null}
         />
       )}
       <YieldSourcesCard
@@ -81,8 +69,7 @@ export function YieldPage() {
         loading={loading}
         rates={rates}
         selectedTarget={account?.yieldTarget}
-        onSelectTarget={handleSelectTarget}
-        busyTarget={busy?.startsWith('target-') ? (busy.replace('target-', '') as YieldTarget) : null}
+        onSwitched={() => void refreshYield()}
       />
     </section>
   )
