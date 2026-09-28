@@ -1,5 +1,5 @@
-import { Contract, Interface, JsonRpcProvider, ZeroAddress, type ContractRunner } from 'ethers'
-import { RPC_URL, COINAI_ADDRESS } from '@/lib/config'
+import { Contract, Interface, ZeroAddress, type ContractRunner } from 'ethers'
+import { COINAI_ADDRESS, readProvider } from '@/lib/config'
 import { getEthersSigner } from '@/lib/ethers-wagmi'
 import { ensureTokenAllowance } from '@/lib/token'
 import { YIELD_TARGETS, type CoinAIAccount, type CoinAIService, type YieldTarget } from '@/lib/types'
@@ -59,7 +59,7 @@ const toYieldTarget = (index: bigint): YieldTarget => YIELD_TARGETS[Number(index
 const fromYieldTarget = (target: YieldTarget): number => YIELD_TARGETS.indexOf(target)
 
 function reader(): Contract {
-  return new Contract(COINAI_ADDRESS, COINAI_ABI, new JsonRpcProvider(RPC_URL))
+  return new Contract(COINAI_ADDRESS, COINAI_ABI, readProvider)
 }
 
 async function signerContract(): Promise<Contract> {
