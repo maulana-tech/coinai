@@ -12,6 +12,7 @@ import { config } from '@/lib/wagmi'
 import { ActivityPage } from '@/pages/activity'
 import { AgentPage } from '@/pages/agent'
 import { AgentRolePage } from '@/pages/agent-role'
+import { ChatPage } from '@/pages/chat'
 import { Dashboard } from '@/pages/dashboard'
 import { FaucetPage } from '@/pages/faucet'
 import { Landing } from '@/pages/landing'
@@ -65,6 +66,7 @@ export function App() {
                       <Route path="yield" element={<YieldPage />} />
                       <Route path="agent" element={<AgentPage />} />
                       <Route path="agent/:role" element={<AgentRolePage />} />
+                      <Route path="chat" element={<ChatPage />} />
                       <Route path="withdraw" element={<WithdrawPage />} />
                       <Route path="rules" element={<RulesPage />} />
                       <Route path="link" element={<PaymentLinkPage />} />
