@@ -6,7 +6,7 @@ coinAI runs on **BNB Smart Chain Testnet** (chain ID 97). A deploy has three par
 2. **Web and agent backend** (`web/`): the Vite SPA plus Vercel Functions in `web/api/`
 3. **External services**: OpenRouter, Upstash Redis, Telegram bot, and Gmail
 
-> **Status:** contracts, agent backend and frontend all target BSC Testnet. Nothing is deployed yet; the app runs in mock mode until `VITE_COINAI_ADDRESS` is set.
+> **Status:** contracts are live on BSC Testnet (block 133234240, addresses in [`deployments.json`](../deployments.json)). The app defaults to them via `web/shared/deployment.ts`; env vars override.
 
 ---
 
@@ -16,9 +16,9 @@ coinAI runs on **BNB Smart Chain Testnet** (chain ID 97). A deploy has three par
 |---|---|
 | Chain | BNB Smart Chain Testnet |
 | Chain ID | 97 |
-| RPC | `https://data-seed-prebsc-1-s1.bnbchain.org:8545` |
+| RPC | `https://bsc-testnet-rpc.publicnode.com` (supports `eth_getLogs` up to 50k blocks, CORS). The official `data-seed-prebsc-*` RPCs reject `eth_getLogs`, so the app doesn't use them for reads |
 | Explorer | `https://testnet.bscscan.com` |
-| Faucet (tBNB) | `https://www.bnbchain.org/en/testnet-faucet` |
+| Faucet (tBNB) | `https://faucet.zalalena.com/bsc` — address + captcha, no mainnet balance or account (used by the app). Alternatives: [QuickNode](https://faucet.quicknode.com/binance-smart-chain/bnb-testnet) (no balance, every 12h), [Bitbond](https://tokentool.bitbond.com/faucet/bsc-testnet) (wallet + profile), or the [official faucet](https://www.bnbchain.org/en/testnet-faucet) (needs 0.002 BNB on mainnet) |
 | Native token | tBNB (18 decimals) |
 | App token | tUSDT (`MockUSDT`, **6 decimals**, `faucet()` gives 1,000 per day) |
 
@@ -141,7 +141,7 @@ Vault addresses are read from `CoinAI.vaultOf()`, so they aren't configured.
 | Variable | Contents |
 |---|---|
 | `COINAI_ADDRESS` | CoinAI address (falls back to `VITE_COINAI_ADDRESS`) |
-| `BSC_RPC_URL` | Defaults to `https://data-seed-prebsc-1-s1.bnbchain.org:8545` |
+| `BSC_RPC_URL` | Defaults to `https://bsc-testnet-rpc.publicnode.com` |
 | `AGENT_PRIVATE_KEY` | **Agent** wallet private key (not the deployer) |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | See section 2 |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Set automatically by Upstash |
@@ -165,7 +165,7 @@ Project settings:
 | Output Directory | `dist` |
 
 `web/vercel.json` already sets up:
-- `api/**/*.ts` as Vercel Functions (`maxDuration: 60s`)
+- `api/**/*.ts` as Vercel Functions (`maxDuration: 300s` (free LLMs can need retries; Hobby with Fluid compute allows up to 300s))
 - a **daily cron** at `0 1 * * *` UTC (**08:00 WIB**) → `/api/cron/daily`
 - SPA rewrites for every path except `/api/*`
 

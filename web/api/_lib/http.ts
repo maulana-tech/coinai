@@ -16,7 +16,7 @@ export async function body<T>(req: Request): Promise<Partial<T>> {
 // The frontend signs loginMessage() with personal_sign; we return an HMAC token so
 // chat/subscribe calls don't need a signature each time.
 
-const TOKEN_TTL = 24 * 3600
+const TOKEN_TTL = 7 * 24 * 3600 // a week, so returning users aren't asked to sign again every day
 const LOGIN_MAX_AGE = 10 * 60
 
 export const loginMessage = (address: string, issuedAt: number) =>

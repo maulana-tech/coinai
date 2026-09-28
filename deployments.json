@@ -1,12 +1,12 @@
 {
   "bscTestnet": {
     "chainId": 97,
-    "deployBlock": null,
-    "coinai": "",
-    "mockUsdt": "",
-    "vaultConservative": "",
-    "vaultBalanced": "",
-    "vaultGrowth": "",
-    "agent": ""
+    "deployBlock": 133234240,
+    "coinai": "0xdA174816F66E30eBB3a002bcf5a71AD00037eBD9",
+    "mockUsdt": "0x49eD8CC30FC55Ed36e976285d98eF00F213C31E2",
+    "vaultConservative": "0x1b013Af5755CB96d9314A5074391931EBCd40ACa",
+    "vaultBalanced": "0x4071DdCe831E484640e864a8627cc3ece308e895",
+    "vaultGrowth": "0xf9B035426d2A16EF00F0547dc0F4Ed9226D2671d",
+    "agent": "0x03c8faF61c40F35CCFFd8fDcCa7F037C2dB2f6C6"
   }
 }

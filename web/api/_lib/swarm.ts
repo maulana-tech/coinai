@@ -11,7 +11,7 @@
 import { fetchMarket, type MarketSnapshot } from '../../shared/market.js'
 import { describe, execute, explorerTx, fmt, readUserState, type UserState } from './chain.js'
 import { checkProposal, policyActive, TARGETS, type Proposal, type Target } from './guard.js'
-import { askJson, complete } from './llm.js'
+import { askJson, complete, withUserKeys } from './llm.js'
 import { kv } from './kv.js'
 
 export type Locale = 'en' | 'id' | 'zh'
@@ -113,10 +113,12 @@ JSON shape: {"regime":"risk_on"|"neutral"|"risk_off","confidence":0..1,"summary"
   const analysis: MarketAnalysis = {
     regime: out.regime === 'risk_on' || out.regime === 'risk_off' ? out.regime : 'neutral',
     confidence: Math.min(1, Math.max(0, Number(out.confidence) || 0)),
-    summary: cleanReason(out.summary).slice(0, 240),
+    summary: '',
     signals: (Array.isArray(out.signals) ? out.signals : []).slice(0, 4).map((x) => cleanReason(x).slice(0, 90)),
     at: new Date().toISOString(),
   }
+  // Free models sometimes leave the summary empty; fall back to the signals rather than show nothing.
+  analysis.summary = cleanReason(out.summary).slice(0, 240) || analysis.signals.slice(0, 2).join(' ') || analysis.regime
   await kv.set('market:analysis', analysis, ANALYSIS_TTL).catch(() => {})
   return analysis
 }
@@ -126,7 +128,7 @@ JSON shape: {"regime":"risk_on"|"neutral"|"risk_off","confidence":0..1,"summary"
 type SplitIdea = { action: 'set_split' | 'none'; percent?: number; reason?: string; confidence?: number }
 type InvestIdea = { action: 'invest' | 'none'; allocation?: Partial<Allocation>; reason?: string; confidence?: number }
 
-async function savingsStrategist(view: object, profile: Profile, instruction?: string): Promise<SplitIdea> {
+async function savingsStrategist(view: object, profile: Profile, lang: string, instruction?: string): Promise<SplitIdea> {
   return askJson<SplitIdea>(
     'strategist',
     `${TEAM}
@@ -137,6 +139,7 @@ Role: Savings Strategist. Decide the savings split percentage.
 - A concrete goal in the investor profile (e.g. a trip in December) justifies saving more.
 - With fewer than 2 payments there is too little data: choose "none" unless the user instruction says otherwise.
 - The user instruction, if any, takes priority when it stays within limits.
+Write "reason" in ${lang}.
 JSON shape: {"action":"set_split"|"none","percent":number,"reason":"<=200 chars, plain language, cite the data","confidence":0..1}`,
     { state: view, investorProfile: profile, userInstruction: instruction ?? null },
   )
@@ -146,6 +149,7 @@ async function investmentStrategist(
   view: object,
   profile: Profile,
   market: MarketAnalysis | null,
+  lang: string,
   instruction?: string,
 ): Promise<InvestIdea> {
   return askJson<InvestIdea>(
@@ -158,6 +162,7 @@ Role: Investment Strategist. Decide how much of the idle savings to invest now a
   If no market read is available, stay neutral.
 - Percentages are of the current idle savings; their sum must be <= 100 (keep a buffer if the user may need cash soon).
 - The user instruction, if any, takes priority.
+Write "reason" in ${lang}.
 JSON shape: {"action":"invest"|"none","allocation":{"conservative":0-100,"balanced":0-100,"growth":0-100},"reason":"<=200 chars, cite profile and market","confidence":0..1}`,
     { state: view, investorProfile: profile, marketAnalysis: market, userInstruction: instruction ?? null },
   )
@@ -180,6 +185,7 @@ async function riskOfficer(
   profile: Profile,
   market: MarketAnalysis | null,
   candidates: { id: string; proposal: object }[],
+  lang: string,
   instruction?: string,
 ) {
   const out = await askJson<Review>(
@@ -188,6 +194,9 @@ async function riskOfficer(
 Role: Risk Officer. Review each proposal. You can approve or veto, never modify.
 Veto when the reason contradicts the data, the move is too aggressive for how little data exists or for the investor profile,
 it ignores a risk_off market read, it conflicts with the user instruction, or it leaves the user without a sensible buffer.
+Proposals with ids "invest:<vault>" are legs of ONE allocation that share a single reason: judge the allocation as a whole
+(a small conservative leg inside an aggressive allocation is diversification, not a contradiction), then approve or veto each leg.
+Write each "note" in ${lang}.
 JSON shape: {"reviews":[{"id":"<proposal id>","approve":true|false,"note":"<=160 chars"}]}`,
     { state: view, investorProfile: profile, marketAnalysis: market, userInstruction: instruction ?? null, proposals: candidates },
   )
@@ -262,10 +271,23 @@ function cleanReason(x: unknown) {
 }
 const agentFor = (id: string): AgentName => (id === 'split' ? 'savings' : 'investment')
 
+const runningKey = (user: string) => `running:${user}`
+export const isRunning = async (user: string) => (await kv.get<number>(runningKey(user)).catch(() => null)) !== null
+
+/** Runs the team; a short-lived flag lets a reopened page show "still running" and poll for the result. */
 export async function runSwarm(
   user: string,
   opts: { locale?: Locale; instruction?: string; reportOnly?: boolean } = {},
 ): Promise<RunResult> {
+  await kv.set(runningKey(user), Date.now(), 300).catch(() => {})
+  try {
+    return await withUserKeys(user, () => runTeam(user, opts))
+  } finally {
+    await kv.del(runningKey(user)).catch(() => {})
+  }
+}
+
+async function runTeam(user: string, opts: { locale?: Locale; instruction?: string; reportOnly?: boolean }): Promise<RunResult> {
   const locale = opts.locale ?? 'en'
   const [s, profile] = await Promise.all([readUserState(user), getProfile(user)])
   const view = describe(s)
@@ -286,9 +308,9 @@ export async function runSwarm(
   if (active) {
     // 1. Strategists in parallel. One failing doesn't sink the other.
     const [split, invest] = await Promise.allSettled([
-      savingsStrategist(view, profile, opts.instruction),
+      savingsStrategist(view, profile, LANGUAGE[locale], opts.instruction),
       s.savings >= MIN_INVEST
-        ? investmentStrategist(view, profile, market, opts.instruction)
+        ? investmentStrategist(view, profile, market, LANGUAGE[locale], opts.instruction)
         : Promise.resolve<InvestIdea>({ action: 'none', reason: 'idle savings below 1 tUSDT' }),
     ])
 
@@ -322,7 +344,7 @@ export async function runSwarm(
     let reviews = new Map<string | undefined, { approve?: boolean; note?: string }>()
     if (passed.length) {
       try {
-        reviews = await riskOfficer(view, profile, market, passed.map(({ id, p }) => ({ id, proposal: stepProposal(p) })), opts.instruction)
+        reviews = await riskOfficer(view, profile, market, passed.map(({ id, p }) => ({ id, proposal: stepProposal(p) })), LANGUAGE[locale], opts.instruction)
       } catch (e) {
         steps.push({ agent: 'risk', outcome: 'failed', note: `review unavailable: ${(e as Error).message}` })
       }

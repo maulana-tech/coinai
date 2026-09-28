@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { NumberTicker } from '@/components/ui/number-ticker'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { ActivityItem } from '@/lib/activity'
 import { tokenToNumber } from '@/lib/format'
 import { TOKEN_SCALE } from '@/lib/token'
 import { currencyAffix, formatDate, formatMoney, intlLocale, useT } from '@/lib/i18n'
@@ -15,13 +14,12 @@ import type { CoinAIAccount } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
 import { useYieldData } from '@/lib/use-yield-data'
-import { computeSavingsPosition, totalInvested } from '@/lib/yield'
+import { principalOnChain, totalInvested } from '@/lib/yield'
 
 const MIN_SEGMENT_PCT = 4 // keep tiny pockets visible on the bar
 
 type BalanceHeroProps = {
   account: CoinAIAccount | null
-  activity: ActivityItem[]
   loading: boolean
   rates: FxRates
 }
@@ -35,7 +33,7 @@ function segmentWidths(spend: number, save: number): [number, number] {
   return [spendPct, 100 - spendPct]
 }
 
-export function BalanceHero({ account, activity, loading, rates }: BalanceHeroProps) {
+export function BalanceHero({ account, loading, rates }: BalanceHeroProps) {
   const t = useT()
   const { address } = useWallet()
   const { locale, primaryCurrency } = useSettings()
@@ -73,7 +71,10 @@ export function BalanceHero({ account, activity, loading, rates }: BalanceHeroPr
     tokenToNumber(account.shares + vaultBalance),
   )
   const currentValue = vaults ? account.shares + vaultBalance : null
-  const position = currentValue !== null ? computeSavingsPosition(activity, currentValue) : null
+  const position =
+    vaults && currentValue !== null
+      ? { principal: principalOnChain(account.shares, vaults), currentValue, earnings: currentValue - principalOnChain(account.shares, vaults) }
+      : null
   const earning = position !== null && position.earnings !== null && position.earnings > 0n
 
   return (

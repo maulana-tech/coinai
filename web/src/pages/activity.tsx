@@ -9,13 +9,14 @@ import { useT, type MessageKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
 
-type FilterKey = 'all' | 'payments' | 'withdrawals' | 'changes'
+type FilterKey = 'all' | 'payments' | 'withdrawals' | 'changes' | 'agent'
 
 const FILTERS: { key: FilterKey; label: MessageKey; kinds: ActivityItem['kind'][] | null }[] = [
   { key: 'all', label: 'activity.filterAll', kinds: null },
-  { key: 'payments', label: 'activity.filterPayments', kinds: ['pay'] },
+  { key: 'payments', label: 'activity.filterPayments', kinds: ['pay', 'paid', 'faucet'] },
   { key: 'withdrawals', label: 'activity.filterWithdrawals', kinds: ['wd_spend', 'wd_save', 'invest'] },
-  { key: 'changes', label: 'activity.filterChanges', kinds: ['split', 'lock', 'agent'] },
+  { key: 'changes', label: 'activity.filterChanges', kinds: ['split', 'lock', 'target'] },
+  { key: 'agent', label: 'activity.filterAgent', kinds: ['agent', 'run', 'agent_on', 'agent_off'] },
 ]
 
 export function ActivityPage() {

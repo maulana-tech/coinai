@@ -35,6 +35,7 @@ export function errorKey(e: unknown): MessageKey {
   if (/FaucetCooldown/i.test(text)) return 'errors.faucetCooldown'
   if (text.includes('wallet_not_found')) return 'common.connectFirst'
   if (text.includes('wallet_timeout')) return 'errors.walletTimeout'
+  if (/insufficient funds|INSUFFICIENT_FUNDS|gas required exceeds/i.test(text)) return 'errors.insufficientGas'
   if (/reject|declin|denied|closed/i.test(text)) return 'errors.walletCancelled'
   if (/wrong network|chain mismatch|switch.*chain/i.test(text)) return 'errors.wrongNetwork'
   if (/vault.*not accepting|maxDeposit|not accepting deposits/i.test(text)) return 'errors.vaultNotAccepting'

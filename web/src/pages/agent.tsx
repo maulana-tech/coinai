@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   BellIcon,
@@ -13,13 +13,14 @@ import { toast } from 'sonner'
 import { ActivityList } from '@/components/activity-list'
 import { ConnectPrompt } from '@/components/connect-prompt'
 import { PageHeader } from '@/components/page-header'
+import { ProjectionCard } from '@/components/projection-card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
-import { agentApi, hasAgentSession, type AgentRun, type AgentStep, type ChatMessage, type Subscription } from '@/lib/agent-api'
+import { agentApi, autopilot, hasAgentSession, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
 import { AGENT_ROLES, agentRoleFor } from '@/lib/agent-roles'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
@@ -27,7 +28,6 @@ import { AGENT_ADDRESS, explorerTxUrl } from '@/lib/config'
 import { formatDate, formatDateTime, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
 import type { AgentPolicy, YieldTarget } from '@/lib/types'
-import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
 
 const DURATIONS = [7, 30, 90]
@@ -71,12 +71,18 @@ function PermissionCard({ address }: { address: string }) {
   const [days, setDays] = useState(30)
   const anyBusy = busy !== null
 
+  const [autopilotOn, setAutopilotOn] = useState(false)
   const load = useCallback(() => {
     coinai.getAgent(address).then(setPolicy).catch(() => setPolicy(null))
   }, [address])
   useEffect(load, [load])
 
   const active = isActive(policy)
+  // Enroll in the daily run whenever the agent is authorized (idempotent; covers earlier enablers too).
+  useEffect(() => {
+    if (active) void autopilot.register(address).then(setAutopilotOn)
+    else setAutopilotOn(false)
+  }, [active, address])
   const [min, max] =
     range ?? (active && policy ? [policy.minSplitBps / 100, policy.maxSplitBps / 100] : DEFAULT_RANGE)
 
@@ -118,6 +124,12 @@ function PermissionCard({ address }: { address: string }) {
       </CardHeader>
       <CardContent className="space-y-5">
         <p className="text-sm text-muted-foreground">{status}</p>
+        {active && autopilotOn && (
+          <p className="flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+            <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+            {t('agent.autopilotOn')}
+          </p>
+        )}
         {!AGENT_ADDRESS ? (
           <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">{t('agent.notConfigured')}</p>
         ) : (
@@ -223,10 +235,21 @@ export function StepRow({ step }: { step: AgentStep }) {
   )
 }
 
-function RunCard({ address, run, onRun }: { address: string; run: AgentRun | null; onRun: (run: AgentRun) => void }) {
+function RunCard({
+  address,
+  run,
+  onRun,
+  remoteRunning,
+}: {
+  address: string
+  run: AgentRun | null
+  onRun: (run: AgentRun) => void
+  remoteRunning: boolean
+}) {
   const t = useT()
   const { locale } = useSettings()
-  const [running, setRunning] = useState(false)
+  const [localRunning, setRunning] = useState(false)
+  const running = localRunning || remoteRunning
 
   const handleRun = async () => {
     setRunning(true)
@@ -246,6 +269,9 @@ function RunCard({ address, run, onRun }: { address: string; run: AgentRun | nul
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{t('agent.runCaption')}</p>
+        {remoteRunning && !localRunning && (
+          <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">{t('agent.stillRunning')}</p>
+        )}
         <Button className="w-full" disabled={running} onClick={() => void handleRun()}>
           {running ? <Loader2Icon className="mr-2 size-4 animate-spin" /> : <BotIcon className="mr-2 size-4" />}
           {running ? t('agent.running') : t('agent.runButton')}
@@ -264,82 +290,6 @@ function RunCard({ address, run, onRun }: { address: string; run: AgentRun | nul
         ) : (
           <p className="text-sm text-muted-foreground">{t('agent.noRun')}</p>
         )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── Chat ────────────────────────────────────────────────────────────────────
-
-function ChatCard({ address, onRun }: { address: string; onRun: (run: AgentRun) => void }) {
-  const t = useT()
-  const { locale } = useSettings()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
-  const listRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
-  }, [messages, sending])
-
-  const send = async () => {
-    const text = draft.trim()
-    if (!text || sending) return
-    const next: ChatMessage[] = [...messages, { role: 'user', content: text }]
-    setMessages(next)
-    setDraft('')
-    setSending(true)
-    try {
-      const res = await agentApi.chat(address, next, locale)
-      setMessages([...next, { role: 'assistant', content: res.reply }])
-      if (res.run) onRun(res.run)
-    } catch (e) {
-      toast.error(t('agent.chatFailed'), { description: errorText(e) })
-    } finally {
-      setSending(false)
-    }
-  }
-
-  return (
-    <Card className="flex flex-col rounded-2xl shadow-none">
-      <CardHeader>
-        <CardTitle>{t('agent.chatTitle')}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-3">
-        <div ref={listRef} className="max-h-80 min-h-40 flex-1 space-y-2 overflow-y-auto">
-          {messages.length === 0 && <p className="text-sm text-muted-foreground">{t('agent.chatEmpty')}</p>}
-          {messages.map((m, i) => (
-            <p
-              key={i}
-              className={cn(
-                'w-fit max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line',
-                m.role === 'user' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted',
-              )}
-            >
-              {m.content}
-            </p>
-          ))}
-          {sending && <Loader2Icon className="size-4 animate-spin text-muted-foreground" />}
-        </div>
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void send()
-          }}
-        >
-          <Input
-            value={draft}
-            maxLength={2000}
-            placeholder={t('agent.chatPlaceholder')}
-            aria-label={t('agent.chatPlaceholder')}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          <Button type="submit" size="icon" aria-label={t('agent.chatSend')} disabled={sending || !draft.trim()}>
-            <SendIcon className="size-4" />
-          </Button>
-        </form>
       </CardContent>
     </Card>
   )
@@ -502,31 +452,48 @@ export function AgentPage() {
   const { address } = useWallet()
   const { activity, activityLoading, refresh } = useAppState()
   const [run, setRun] = useState<AgentRun | null>(null)
+  const [remoteRunning, setRemoteRunning] = useState(false)
 
   // Show the last run only if already signed in; a fresh visitor isn't asked to sign on page load.
+  // If a run started earlier is still going (e.g. the page was closed mid-run), poll until it lands.
   useEffect(() => {
     setRun(null)
+    setRemoteRunning(false)
     if (!address || !hasAgentSession(address)) return
-    agentApi.history(address).then((r) => setRun(r.runs[0] ?? null)).catch(() => {})
-  }, [address])
+    let alive = true
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async (wasRunning: boolean) => {
+      const r = await agentApi.history(address).catch(() => null)
+      if (!alive || !r) return
+      setRun(r.runs[0] ?? null)
+      setRemoteRunning(r.running)
+      if (r.running) timer = setTimeout(() => void poll(true), 4000)
+      else if (wasRunning) void refresh()
+    }
+    void poll(false)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [address, refresh])
 
   if (!address) return <ConnectPrompt />
 
   const handleRun = (next: AgentRun) => {
     setRun(next)
-    if (next.executed.length) void refresh()
+    void refresh() // every run lands in Activity, even one that changed nothing on-chain
   }
 
-  const decisions = activity.filter((item) => item.kind === 'agent')
+  const decisions = activity.filter((item) => ['agent', 'run', 'agent_on', 'agent_off'].includes(item.kind))
 
   return (
     <section className="space-y-5">
       <PageHeader title={t('nav.agent')} caption={t('page.agentCaption')} />
       <PermissionCard address={address} />
       <TeamCard />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <RunCard address={address} run={run} onRun={handleRun} />
-        <ChatCard address={address} onRun={handleRun} />
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+        <RunCard address={address} run={run} onRun={handleRun} remoteRunning={remoteRunning} />
+        <ProjectionCard address={address} />
       </div>
       <NotificationsCard address={address} />
       <Card className="rounded-2xl shadow-none">

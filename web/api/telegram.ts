@@ -1,4 +1,4 @@
-import { advise, cleanHistory, MAX_HISTORY, type Turn } from './_lib/advisor.js'
+import { chatTurn, clearChat } from './_lib/advisor.js'
 import { env } from './_lib/chain.js'
 import { json } from './_lib/http.js'
 import { kv } from './_lib/kv.js'
@@ -16,14 +16,13 @@ Just type to chat, e.g. "how are my savings?" or "save more for a trip in Decemb
 /market — live market read (BNB, BTC, ETH, CAKE)
 /run — run the agent team now
 /report — today's savings report
-/reset — clear this chat's memory
+/reset — clear the conversation (web + Telegram)
 /stop — stop daily reports and unlink
 
 Connect your wallet in the coinAI app (AI Agent → Daily report & reminders → Connect Telegram).`
 
 const NOT_LINKED = 'This chat is not linked to a wallet yet. Open the coinAI app → AI Agent → Daily report & reminders → Connect Telegram, then press Start.'
 
-const histKey = (chatId: number) => `tghist:${chatId}`
 
 async function marketText(): Promise<string> {
   const market = await getMarket()
@@ -82,7 +81,7 @@ export async function POST(req: Request) {
         await sendTelegram(chatId, txs ? `${run.report}\n\n${txs}` : run.report)
       }
     } else if (command === '/reset') {
-      await kv.del(histKey(chatId))
+      await clearChat(user)
       await sendTelegram(chatId, 'Chat memory cleared.')
     } else if (command === '/stop') {
       if (sub) {
@@ -90,20 +89,17 @@ export async function POST(req: Request) {
         await setSub(user, sub)
       }
       await kv.del(`tgchat:${chatId}`)
-      await kv.del(histKey(chatId))
       await sendTelegram(chatId, 'Unlinked. Daily reports stopped. Reconnect any time from the coinAI app.')
     } else if (command.startsWith('/')) {
       await sendTelegram(chatId, HELP)
     } else if ((await kv.hit(`rl:chat:${user}`, 600)) > 30) {
       await sendTelegram(chatId, 'You are sending messages quickly — please wait a few minutes.')
     } else {
-      // Free text → the same Chat Advisor as the web app, with per-chat memory.
+      // Free text → the same Chat Advisor and conversation as the web app.
       await sendTyping(chatId)
-      const history = cleanHistory([...((await kv.get<Turn[]>(histKey(chatId))) ?? []), { role: 'user', content: text }])
-      const { reply, run } = await advise(user, history, locale, 'telegram')
+      const { reply, run } = await chatTurn(user, text, locale, 'telegram')
       const txs = run?.executed.map((e) => `• ${e.explorer}`).join('\n')
       await sendTelegram(chatId, txs ? `${reply}\n\n${txs}` : reply)
-      await kv.set(histKey(chatId), [...history, { role: 'assistant', content: reply }].slice(-MAX_HISTORY), 7 * 86400)
     }
   } catch (e) {
     console.error('telegram webhook', e)

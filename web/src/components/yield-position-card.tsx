@@ -8,7 +8,7 @@ import { tokenToInput } from '@/lib/format'
 import { formatMoney, useT } from '@/lib/i18n'
 import type { FxRates } from '@/lib/rates'
 import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
-import { computeSavingsPosition, savingsHistory, totalInvested, type Vaults } from '@/lib/yield'
+import { computeSavingsPosition, principalOnChain, savingsHistory, totalInvested, type Vaults } from '@/lib/yield'
 import type { ActivityItem } from '@/lib/activity'
 import type { CoinAIAccount } from '@/lib/types'
 
@@ -90,7 +90,9 @@ export function YieldPositionCard({
   // idle savings in CoinAI + what the user holds across the vaults
   const currentValue = vaults ? account.shares + totalInvested(vaults) : null
   const sharePrice = vaults ? vaults[account.yieldTarget].sharePrice : null
-  const position = computeSavingsPosition(activity, currentValue)
+  const position = vaults
+    ? { principal: principalOnChain(account.shares, vaults), currentValue, earnings: currentValue! - principalOnChain(account.shares, vaults) }
+    : computeSavingsPosition(activity, currentValue)
   const earningsTone = position.earnings !== null && position.earnings > 0n ? 'gold' : 'muted'
   const history = savingsHistory(activity)
 

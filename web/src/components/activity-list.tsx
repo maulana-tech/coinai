@@ -1,11 +1,19 @@
+import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import {
   ArrowDownLeftIcon,
+  ArrowRightIcon,
   BotIcon,
+  DropletsIcon,
+  LandmarkIcon,
   TrendingUpIcon,
   ArrowUpRightIcon,
   ExternalLinkIcon,
   LockIcon,
+  ShieldCheckIcon,
+  ShieldOffIcon,
   SlidersHorizontalIcon,
+  UsersIcon,
 } from 'lucide-react'
 import { AddressAvatar } from '@/components/brand/address-avatar'
 import { TokenIcon } from '@/components/brand/token-icon'
@@ -22,6 +30,12 @@ import { useWallet } from '@/lib/wallet'
 
 const ICONS: Record<ActivityItem['kind'], typeof LockIcon> = {
   pay: ArrowDownLeftIcon,
+  paid: ArrowUpRightIcon,
+  faucet: DropletsIcon,
+  target: LandmarkIcon,
+  agent_on: ShieldCheckIcon,
+  agent_off: ShieldOffIcon,
+  run: UsersIcon,
   wd_spend: ArrowUpRightIcon,
   wd_save: ArrowUpRightIcon,
   invest: TrendingUpIcon,
@@ -35,6 +49,12 @@ const ICONS: Record<ActivityItem['kind'], typeof LockIcon> = {
 // where a soft wash reads fine.
 const KIND_TINT: Record<ActivityItem['kind'], { bg: string; fg: string }> = {
   pay: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
+  paid: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
+  faucet: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
+  target: { bg: 'bg-accent', fg: 'text-accent-foreground' },
+  agent_on: { bg: 'bg-gold/15', fg: 'text-gold-ink' },
+  agent_off: { bg: 'bg-gold/15', fg: 'text-gold-ink' },
+  run: { bg: 'bg-gold/15', fg: 'text-gold-ink' },
   wd_spend: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   wd_save: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   invest: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
@@ -47,6 +67,12 @@ const KIND_TINT: Record<ActivityItem['kind'], { bg: string; fg: string }> = {
 // ~16px, and a soft tint at that size just reads as a blur - small marks need real contrast.
 const KIND_TINT_SOLID: Record<ActivityItem['kind'], { bg: string; fg: string }> = {
   pay: { bg: 'bg-primary', fg: 'text-primary-foreground' },
+  paid: { bg: 'bg-primary', fg: 'text-primary-foreground' },
+  faucet: { bg: 'bg-primary', fg: 'text-primary-foreground' },
+  target: { bg: 'bg-accent', fg: 'text-accent-foreground' },
+  agent_on: { bg: 'bg-gold', fg: 'text-primary-foreground' },
+  agent_off: { bg: 'bg-gold', fg: 'text-primary-foreground' },
+  run: { bg: 'bg-gold', fg: 'text-primary-foreground' },
   wd_spend: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   wd_save: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   invest: { bg: 'bg-primary', fg: 'text-primary-foreground' },
@@ -66,7 +92,26 @@ type ActivityListProps = {
   loading: boolean
 }
 
-const TOKEN_KINDS: readonly ActivityItem['kind'][] = ['pay', 'wd_spend', 'wd_save', 'invest']
+const TOKEN_KINDS: readonly ActivityItem['kind'][] = ['pay', 'paid', 'faucet', 'wd_spend', 'wd_save', 'invest']
+
+const short = (a: string | undefined) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '')
+
+// On-chain rows open the explorer; agent runs (off-chain) open the AI Agent page.
+function RowLink({ item, className, children }: { item: ActivityItem; className: string; children: ReactNode }) {
+  const t = useT()
+  if (!item.txHash) {
+    return (
+      <Link to="/app/agent" className={className}>
+        {children}
+      </Link>
+    )
+  }
+  return (
+    <a href={explorerTxUrl(item.txHash)} target="_blank" rel="noreferrer" title={t('activity.viewOnExplorer')} className={className}>
+      {children}
+    </a>
+  )
+}
 
 export function ActivityList({ items, loading }: ActivityListProps) {
   const { account, rates } = useAppState()
@@ -80,24 +125,55 @@ export function ActivityList({ items, loading }: ActivityListProps) {
   const vaultName = (item: ActivityItem): string =>
     t(VAULT_NAME_KEY[item.target ?? 'balanced'])
 
-  const label = (item: ActivityItem): string => {
+  const pct = (bps: number | undefined) => (bps ?? 0) / 100
+
+  // Title says what happened; the muted second line says who/why.
+  const describe = (item: ActivityItem): { title: string; detail?: string } => {
     switch (item.kind) {
       case 'pay':
-        return t('activity.pay', { amount: money(item.amount), saved: money(item.saved) })
+        return {
+          title: t('activity.pay', { amount: money(item.amount), saved: money(item.saved) }),
+          detail: item.from && item.from.toLowerCase() !== address?.toLowerCase() ? t('activity.fromAddr', { addr: short(item.from) }) : undefined,
+        }
+      case 'paid':
+        return { title: t('activity.paid', { amount: money(item.amount) }), detail: t('activity.toAddr', { addr: short(item.to) }) }
+      case 'faucet':
+        return { title: t('activity.faucet', { amount: money(item.amount) }) }
       case 'wd_spend':
-        return t('activity.wdSpend', { amount: money(item.amount) })
+        return { title: t('activity.wdSpend', { amount: money(item.amount) }) }
       case 'wd_save':
-        return t('activity.wdSave', { amount: money(item.amount) })
+        return { title: t('activity.wdSave', { amount: money(item.amount) }) }
       case 'split':
-        return t('activity.split', { pct: (item.bps ?? 0) / 100 })
+        return { title: t('activity.split', { pct: pct(item.bps) }) }
       case 'lock':
-        return t('activity.lock', { date: formatDate(item.until ?? 0n, locale) })
+        return { title: t('activity.lock', { date: formatDate(item.until ?? 0n, locale) }) }
+      case 'target':
+        return { title: t('activity.target', { vault: vaultName(item) }) }
       case 'invest':
-        return t('activity.invest', { amount: money(item.amount), vault: vaultName(item) })
+        return { title: t('activity.invest', { amount: money(item.amount), vault: vaultName(item) }) }
+      case 'agent_on':
+        return {
+          title: t('activity.agentOn'),
+          detail: t('activity.agentOnDetail', { min: pct(item.minBps), max: pct(item.maxBps), date: formatDate(item.until ?? 0n, locale) }),
+        }
+      case 'agent_off':
+        return { title: t('activity.agentOff') }
       case 'agent':
-        return item.agentAction === 'split'
-          ? t('activity.agentSplit', { pct: (item.bps ?? 0) / 100, reason: item.reason ?? '' })
-          : t('activity.agentInvest', { amount: money(item.amount), vault: vaultName(item), reason: item.reason ?? '' })
+        return {
+          title:
+            item.agentAction === 'split'
+              ? t('activity.agentSplit', { pct: pct(item.bps) })
+              : t('activity.agentInvest', { amount: money(item.amount), vault: vaultName(item) }),
+          detail: item.reason,
+        }
+      case 'run':
+        return {
+          title:
+            item.runMode === 'report-only'
+              ? t('activity.runReport')
+              : t('activity.run', { executed: item.executed ?? 0, rejected: item.rejected ?? 0 }),
+          detail: item.summary,
+        }
     }
   }
 
@@ -124,15 +200,13 @@ export function ActivityList({ items, loading }: ActivityListProps) {
         {items.map((item) => {
           const Icon = ICONS[item.kind]
           const tint = KIND_TINT[item.kind]
+          const { title, detail } = describe(item)
           const externalPayer =
             item.kind === 'pay' && item.from !== undefined && item.from !== address
           return (
             <li key={item.id}>
-              <a
-                href={explorerTxUrl(item.txHash)}
-                target="_blank"
-                rel="noreferrer"
-                title={t('activity.viewOnExplorer')}
+              <RowLink
+                item={item}
                 className="group flex items-center gap-3 rounded-xl px-2 py-2 text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <span className="relative shrink-0">
@@ -171,12 +245,19 @@ export function ActivityList({ items, loading }: ActivityListProps) {
                       </span>
                     ))}
                 </span>
-                <span className="min-w-0 flex-1">{label(item)}</span>
-                <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                <span className="min-w-0 flex-1">
+                  <span className="block">{title}</span>
+                  {detail && <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{detail}</span>}
+                </span>
+                {item.txHash ? (
+                  <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                ) : (
+                  <ArrowRightIcon className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                )}
                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                   {formatDateTime(item.at, locale)}
                 </span>
-              </a>
+              </RowLink>
             </li>
           )
         })}

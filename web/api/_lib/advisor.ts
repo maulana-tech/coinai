@@ -4,7 +4,7 @@
 
 import { describe, readUserState } from './chain.js'
 import { kv } from './kv.js'
-import { complete, type ChatMessage, type Tool } from './llm.js'
+import { complete, withUserKeys, type ChatMessage, type Tool } from './llm.js'
 import { getMarket, getMarketAnalysis, getProfile, runSwarm, type Locale, type RunResult } from './swarm.js'
 
 const LANGUAGE: Record<Locale, string> = { en: 'English', id: 'Bahasa Indonesia', zh: 'Simplified Chinese' }
@@ -55,6 +55,31 @@ const TOOLS: Tool[] = [
 
 export type Turn = { role: 'user' | 'assistant'; content: string }
 
+// One conversation per wallet, shared by the web chat and Telegram, kept for 7 days.
+const CHAT_TTL = 7 * 86400
+const STORED_TURNS = 40 // shown in the app; the model only sees the last MAX_HISTORY
+const chatKey = (user: string) => `chat:${user}`
+const pendingKey = (user: string) => `chat:pending:${user}`
+
+export const loadChat = async (user: string) => (await kv.get<Turn[]>(chatKey(user)).catch(() => null)) ?? []
+export const chatPending = async (user: string) => (await kv.get<number>(pendingKey(user)).catch(() => null)) !== null
+export const clearChat = (user: string) => Promise.all([kv.del(chatKey(user)), kv.del(pendingKey(user))])
+
+/** Stores the user's message first and the reply when it's ready, so leaving the page loses nothing. */
+export async function chatTurn(user: string, message: string, locale: Locale, channel: 'web' | 'telegram') {
+  const stored = [...(await loadChat(user)), { role: 'user' as const, content: message.slice(0, 2000) }].slice(-STORED_TURNS)
+  await kv.set(chatKey(user), stored, CHAT_TTL)
+  await kv.set(pendingKey(user), Date.now(), 300)
+  try {
+    const { reply, run } = await withUserKeys(user, () => advise(user, cleanHistory(stored), locale, channel))
+    const messages = [...stored, { role: 'assistant' as const, content: reply }].slice(-STORED_TURNS)
+    await kv.set(chatKey(user), messages, CHAT_TTL)
+    return { reply, run, messages }
+  } finally {
+    await kv.del(pendingKey(user)).catch(() => {})
+  }
+}
+
 /** Keeps only well-formed user/assistant turns, trimmed to the last MAX_HISTORY. */
 export function cleanHistory(messages: unknown): Turn[] {
   return (Array.isArray(messages) ? messages : [])
@@ -71,8 +96,8 @@ export async function advise(
 ): Promise<{ reply: string; run?: RunResult }> {
   const style =
     channel === 'telegram'
-      ? 'You are chatting on Telegram: plain text only (no markdown), at most ~120 words. For settings, point to the coinAI web app.'
-      : 'Keep answers concise.'
+      ? 'You are chatting on Telegram: at most ~120 words. For settings, point to the coinAI web app.'
+      : 'Keep answers short: at most ~90 words, lead with the answer.'
   const convo: ChatMessage[] = [
     {
       role: 'system',
@@ -83,7 +108,9 @@ the team acts only within the user's on-chain limits, and the risk officer may d
 If the agent is not enabled or has expired (see get_state agentLimits), tell the user to enable it on the Agent page.
 Use get_market for questions about prices or the market; you explain, you never promise returns or give trading signals.
 The user's investor profile (risk, horizon, goal) is edited on the Investment Strategist page.
-Always check get_state before quoting numbers. Reply in ${LANGUAGE[locale]}. ${style}`,
+Always check get_state before quoting numbers.
+Reply in the language of the user's latest message (if unclear, use ${LANGUAGE[locale]}).
+Plain text only: no markdown, no asterisks or headings; use short lines and "•" for lists. ${style}`,
     },
     ...history,
   ]

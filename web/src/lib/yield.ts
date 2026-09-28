@@ -15,6 +15,7 @@ export type VaultInfo = {
   tvl: bigint
   sharePrice: bigint // tUSDT per 1 vault share (6 decimals)
   position: bigint // the user's holding in this vault, in tUSDT
+  shares: bigint // the user's vault shares
 }
 
 export type Vaults = Record<YieldTarget, VaultInfo>
@@ -34,9 +35,9 @@ const VAULT_ABI = [
 ]
 
 const MOCK_VAULTS: Vaults = {
-  conservative: { target: 'conservative', address: '', apy: 0.03, risk: 1, tvl: 2_500_000_000n, sharePrice: TOKEN_SCALE, position: 0n },
-  balanced: { target: 'balanced', address: '', apy: 0.06, risk: 2, tvl: 4_200_000_000n, sharePrice: TOKEN_SCALE, position: 0n },
-  growth: { target: 'growth', address: '', apy: 0.12, risk: 3, tvl: 1_300_000_000n, sharePrice: TOKEN_SCALE, position: 0n },
+  conservative: { target: 'conservative', address: '', apy: 0.03, risk: 1, tvl: 2_500_000_000n, sharePrice: TOKEN_SCALE, position: 0n, shares: 0n },
+  balanced: { target: 'balanced', address: '', apy: 0.06, risk: 2, tvl: 4_200_000_000n, sharePrice: TOKEN_SCALE, position: 0n, shares: 0n },
+  growth: { target: 'growth', address: '', apy: 0.12, risk: 3, tvl: 1_300_000_000n, sharePrice: TOKEN_SCALE, position: 0n, shares: 0n },
 }
 
 export async function getVaults(user: string | null): Promise<Vaults> {
@@ -55,10 +56,27 @@ export async function getVaults(user: string | null): Promise<Vaults> {
         user ? v.balanceOf(user) : 0n,
       ])
       const position = BigInt(shares) === 0n ? 0n : BigInt(await v.convertToAssets(shares))
-      return { target, address, apy: Number(apyBps) / 10_000, risk: Number(risk), tvl: BigInt(tvl), sharePrice: BigInt(sharePrice), position }
+      return {
+        target,
+        address,
+        apy: Number(apyBps) / 10_000,
+        risk: Number(risk),
+        tvl: BigInt(tvl),
+        sharePrice: BigInt(sharePrice),
+        position,
+        shares: BigInt(shares),
+      }
     }),
   )
   return Object.fromEntries(list.map((v) => [v.target, v])) as Vaults
+}
+
+/** What the user put in, from chain state alone (public RPCs prune old event history):
+ * idle savings + vault shares, since SimpleVault mints shares 1:1 while its price is 1.
+ * ponytail: assumes deposits at share price 1 (true unless someone donates to a vault);
+ * track per-deposit cost basis on-chain if vaults ever accrue real yield. */
+export function principalOnChain(idleSavings: bigint, vaults: Vaults): bigint {
+  return YIELD_TARGETS.reduce((sum, t) => sum + vaults[t].shares, idleSavings)
 }
 
 export function totalInvested(vaults: Vaults | null): bigint {

@@ -63,13 +63,17 @@ flowchart LR
 
 ## Deployed contracts (BSC Testnet, chain 97)
 
-> Not deployed yet — run `evm/script/DeployAll.s.sol` (see [docs/deployment.md](docs/deployment.md)) and fill in [`deployments.json`](deployments.json).
+Deployed at block 133234240. Source of truth: [`deployments.json`](deployments.json).
 
 | Contract | Address |
 |---|---|
-| CoinAI | _pending_ |
-| MockUSDT (tUSDT) | _pending_ |
-| Conservative / Balanced / Growth vault | _pending_ |
+| CoinAI | [`0xdA174816F66E30eBB3a002bcf5a71AD00037eBD9`](https://testnet.bscscan.com/address/0xdA174816F66E30eBB3a002bcf5a71AD00037eBD9) |
+| MockUSDT (tUSDT, 6 decimals) | [`0x49eD8CC30FC55Ed36e976285d98eF00F213C31E2`](https://testnet.bscscan.com/address/0x49eD8CC30FC55Ed36e976285d98eF00F213C31E2) |
+| Conservative vault (3% APY, low risk) | [`0x1b013Af5755CB96d9314A5074391931EBCd40ACa`](https://testnet.bscscan.com/address/0x1b013Af5755CB96d9314A5074391931EBCd40ACa) |
+| Balanced vault (6% APY, medium risk) | [`0x4071DdCe831E484640e864a8627cc3ece308e895`](https://testnet.bscscan.com/address/0x4071DdCe831E484640e864a8627cc3ece308e895) |
+| Growth vault (12% APY, high risk) | [`0xf9B035426d2A16EF00F0547dc0F4Ed9226D2671d`](https://testnet.bscscan.com/address/0xf9B035426d2A16EF00F0547dc0F4Ed9226D2671d) |
+
+Price feeds used by the Market Analyst: Chainlink on BSC Testnet — [BNB/USD](https://testnet.bscscan.com/address/0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526), [BTC/USD](https://testnet.bscscan.com/address/0x5741306c21795FdCBb9b265Ea0255F499DFe515C), [ETH/USD](https://testnet.bscscan.com/address/0x143db3CEEfbdfe5631aDD3E50f7614B6ba708BA7), [CAKE/USD](https://testnet.bscscan.com/address/0x81faeDDfeBc2F8Ac524327d70Cf913001732224C).
 
 ## Repository layout
 
