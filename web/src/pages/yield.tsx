@@ -2,7 +2,6 @@ import { RefreshCwIcon } from 'lucide-react'
 import { ConnectPrompt } from '@/components/connect-prompt'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
-import type { YieldTarget } from '@/lib/types'
 import { YieldDepositCard } from '@/components/yield-deposit-card'
 import { YieldPositionCard } from '@/components/yield-position-card'
 import { YieldSourcesCard } from '@/components/yield-sources-card'
@@ -24,16 +23,6 @@ export function YieldPage() {
     if (!account) return
     const result = await runAction('yield-deposit', 'success.yieldDeposited', () =>
       coinai.investSavings(address, amount, account.yieldTarget),
-    )
-    if (result) {
-      await refresh()
-      await refreshYield()
-    }
-  }
-
-  const handleSelectTarget = async (target: YieldTarget) => {
-    const result = await runAction(`target-${target}`, 'success.yieldTargetSaved', () =>
-      coinai.setYieldTarget(address, target),
     )
     if (result) {
       await refresh()
@@ -81,8 +70,7 @@ export function YieldPage() {
         loading={loading}
         rates={rates}
         selectedTarget={account?.yieldTarget}
-        onSelectTarget={handleSelectTarget}
-        busyTarget={busy?.startsWith('target-') ? (busy.replace('target-', '') as YieldTarget) : null}
+        onSwitched={() => void refreshYield()}
       />
     </section>
   )
