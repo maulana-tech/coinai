@@ -10,6 +10,8 @@
 
 ---
 
+![coinAI demo — landing, dashboard and the AI agent team](docs/assets/demo.gif)
+
 ## The problem
 
 Saving depends on willpower. Money lands in one place and stays there until it is spent, and even people who do save leave it idle because picking where to put it is one more chore. "AI finance agents" promise to help, but handing an LLM your wallet is a non-starter.
