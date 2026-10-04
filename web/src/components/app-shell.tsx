@@ -263,15 +263,6 @@ export function AppShell() {
 
   return (
     <div className="relative min-h-svh">
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[-1]">
-        <img
-          src="/assets/section1-bg.png"
-          alt=""
-          className="h-full w-full object-cover"
-        />
-        <div className="absolute inset-0 bg-background/50" />
-      </div>
-      
       <aside
         ref={asideRef}
         id="app-sidebar"
