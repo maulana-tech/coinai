@@ -13,6 +13,7 @@ import { describe, dripYield, execute, explorerTx, fmt, readUserState, type User
 import { checkProposal, policyActive, TARGETS, type Proposal, type Target } from './guard.js'
 import { askJson, complete, withUserKeys } from './llm.js'
 import { kv } from './kv.js'
+import { activeStrategy, type Strategy } from './pools.js'
 
 export type Locale = 'en' | 'id' | 'zh'
 const LANGUAGE: Record<Locale, string> = { en: 'English', id: 'Bahasa Indonesia', zh: 'Simplified Chinese' }
@@ -53,6 +54,7 @@ export type RunResult = {
   profile: Profile
   market: MarketAnalysis | null
   allocation: Allocation | null
+  strategy: Strategy | null // the saved pool the user made the agents' benchmark, if any
   steps: Step[]
   executed: { kind: Proposal['kind']; reason: string; txHash: string; explorer: string }[]
   reminders: string[]
@@ -151,6 +153,7 @@ async function investmentStrategist(
   market: MarketAnalysis | null,
   lang: string,
   instruction?: string,
+  strategy?: Strategy | null,
 ): Promise<InvestIdea> {
   return askJson<InvestIdea>(
     'strategist',
@@ -161,10 +164,14 @@ Role: Investment Strategist. Decide how much of the idle savings to invest now a
 - Tilt with the Market Analyst's regime: risk_off -> shift toward conservative; risk_on -> allow more growth.
   If no market read is available, stay neutral.
 - Percentages are of the current idle savings; their sum must be <= 100 (keep a buffer if the user may need cash soon).
+- If userStrategy is set, it is the pool the user saved as the benchmark: aim for its vaultMix
+  (calm assets -> conservative, core BTC/ETH/BNB/index ETFs -> balanced, other coins and single stocks -> growth).
+  Deviate by at most 15 points per vault, and only to respect a risk_off market or a clear mismatch with the profile.
+  Mention the strategy by its name (e.g. "following your Pool 1 Aggressive"), never internal field names like userStrategy.
 - The user instruction, if any, takes priority.
 Write "reason" in ${lang}.
 JSON shape: {"action":"invest"|"none","allocation":{"conservative":0-100,"balanced":0-100,"growth":0-100},"reason":"<=200 chars, cite profile and market","confidence":0..1}`,
-    { state: view, investorProfile: profile, marketAnalysis: market, userInstruction: instruction ?? null },
+    { state: view, investorProfile: profile, marketAnalysis: market, userStrategy: strategy ?? null, userInstruction: instruction ?? null },
   )
 }
 
@@ -187,6 +194,7 @@ async function riskOfficer(
   candidates: { id: string; proposal: object }[],
   lang: string,
   instruction?: string,
+  strategy?: Strategy | null,
 ) {
   const out = await askJson<Review>(
     'risk',
@@ -196,9 +204,11 @@ Veto when the reason contradicts the data, the move is too aggressive for how li
 it ignores a risk_off market read, it conflicts with the user instruction, or it leaves the user without a sensible buffer.
 Proposals with ids "invest:<vault>" are legs of ONE allocation that share a single reason: judge the allocation as a whole
 (a small conservative leg inside an aggressive allocation is diversification, not a contradiction), then approve or veto each leg.
+An allocation that follows the user's own saved strategy (userStrategy.vaultMix) reflects their explicit choice: approve it
+unless the market read is risk_off and it ignores that, or it leaves no buffer.
 Write each "note" in ${lang}.
 JSON shape: {"reviews":[{"id":"<proposal id>","approve":true|false,"note":"<=160 chars"}]}`,
-    { state: view, investorProfile: profile, marketAnalysis: market, userInstruction: instruction ?? null, proposals: candidates },
+    { state: view, investorProfile: profile, marketAnalysis: market, userStrategy: strategy ?? null, userInstruction: instruction ?? null, proposals: candidates },
   )
   return new Map((out.reviews ?? []).map((r) => [r.id, r]))
 }
@@ -291,7 +301,7 @@ export async function runSwarm(
 
 async function runTeam(user: string, opts: { locale?: Locale; instruction?: string; reportOnly?: boolean }): Promise<RunResult> {
   const locale = opts.locale ?? 'en'
-  const [s, profile] = await Promise.all([readUserState(user), getProfile(user)])
+  const [s, profile, strategy] = await Promise.all([readUserState(user), getProfile(user), activeStrategy(user).catch(() => null)])
   const view = describe(s)
   const steps: Step[] = []
   const executed: RunResult['executed'] = []
@@ -312,7 +322,7 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
     const [split, invest] = await Promise.allSettled([
       savingsStrategist(view, profile, LANGUAGE[locale], opts.instruction),
       s.savings >= MIN_INVEST
-        ? investmentStrategist(view, profile, market, LANGUAGE[locale], opts.instruction)
+        ? investmentStrategist(view, profile, market, LANGUAGE[locale], opts.instruction, strategy)
         : Promise.resolve<InvestIdea>({ action: 'none', reason: 'idle savings below 1 tUSDT' }),
     ])
 
@@ -346,7 +356,7 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
     let reviews = new Map<string | undefined, { approve?: boolean; note?: string }>()
     if (passed.length) {
       try {
-        reviews = await riskOfficer(view, profile, market, passed.map(({ id, p }) => ({ id, proposal: stepProposal(p) })), LANGUAGE[locale], opts.instruction)
+        reviews = await riskOfficer(view, profile, market, passed.map(({ id, p }) => ({ id, proposal: stepProposal(p) })), LANGUAGE[locale], opts.instruction, strategy)
       } catch (e) {
         steps.push({ agent: 'risk', outcome: 'failed', note: `review unavailable: ${(e as Error).message}` })
       }
@@ -379,6 +389,7 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
     profile,
     market,
     allocation,
+    strategy,
     steps,
     executed,
     reminders: reminders(after),
