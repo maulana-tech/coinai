@@ -3,6 +3,7 @@ import { BotIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { CoinIcon } from '@/components/brand/coin-icon'
 import { MarketBoard } from '@/components/market-board'
+import { SavedPools, VaultMixBar } from '@/components/saved-pools'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { agentApi, type PoolReview } from '@/lib/agent-api'
+import { agentApi, hasAgentSession, type PoolReview, type PoolStore } from '@/lib/agent-api'
 import { intlLocale, useT, type MessageKey } from '@/lib/i18n'
 import { useMarket } from '@/lib/use-market'
 import { useSettings } from '@/lib/settings'
@@ -133,6 +134,9 @@ export function MarketPage() {
   const [history, setHistory] = useState<History | null>(null)
   const [historyError, setHistoryError] = useState(false)
   const [review, setReview] = useState<PoolReview | null>(null)
+  const [store, setStore] = useState<PoolStore | null>(null)
+  const [editing, setEditing] = useState<{ id: string | null; name: string }>({ id: null, name: '' })
+  const [poolBusy, setPoolBusy] = useState(false)
   const [reviewing, setReviewing] = useState(false)
 
   useEffect(() => {
@@ -144,6 +148,11 @@ export function MarketPage() {
       })
       .catch(() => setHistoryError(true))
   }, [])
+
+  // Saved pools live server-side; load them silently when the wallet already has an agent session.
+  useEffect(() => {
+    if (address && hasAgentSession(address)) agentApi.pools(address).then(setStore).catch(() => setStore(null))
+  }, [address])
 
   const { weights: clean, valid } = normalizeWeights(weights)
   const total = Object.values(clean).reduce((a, b) => a + (b ?? 0), 0)
@@ -169,6 +178,33 @@ export function MarketPage() {
     setWeights((w) => ({ ...w, [s]: Math.max(0, Math.min(100, Math.round(v))) }))
     setReview(null)
   }
+  const poolAction = async (fn: () => Promise<PoolStore>, success?: MessageKey) => {
+    if (!address) return toast.error(t('common.connectFirst'))
+    setPoolBusy(true)
+    try {
+      setStore(await fn())
+      if (success) toast.success(t(success))
+      return true
+    } catch (e) {
+      const code = e instanceof Error ? e.message : String(e)
+      toast.error(code === 'too_many_pools' ? t('pools.tooMany') : code === 'name_required' ? t('pools.nameRequired') : code)
+      return false
+    } finally {
+      setPoolBusy(false)
+    }
+  }
+  const savePool = async (asNew: boolean) => {
+    const id = asNew ? undefined : (editing.id ?? undefined)
+    const ok = await poolAction(() => agentApi.savePool(address!, { id, name: editing.name, weights: clean as Record<string, number> }), 'pools.saved')
+    if (ok && !id) setEditing({ id: null, name: '' })
+  }
+  const loadPool = (p: { id: string; name: string; weights: Weights }) => {
+    setWeights(p.weights)
+    setEditing({ id: p.id, name: p.name })
+    setReview(null)
+    document.getElementById('pool-builder')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const askAi = async () => {
     if (!address) return toast.error(t('common.connectFirst'))
     setReviewing(true)
@@ -185,12 +221,27 @@ export function MarketPage() {
     <section className="space-y-5">
       <PageHeader title={t('nav.market')} caption={t('page.marketCaption')} />
       <MarketBoard market={market} loading={loading} error={error} onRefresh={() => void refresh()} />
+      {address && (
+        <SavedPools
+          store={store}
+          history={history}
+          editingId={editing.id}
+          busy={poolBusy}
+          onSignIn={() => void poolAction(() => agentApi.pools(address))}
+          onLoad={loadPool}
+          onActivate={(id) => void poolAction(() => agentApi.setActivePool(address, id), id ? 'pools.activated' : 'pools.deactivated')}
+          onDelete={(id) => {
+            if (editing.id === id) setEditing({ id: null, name: '' })
+            void poolAction(() => agentApi.deletePool(address, id), 'pools.deleted')
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Builder */}
-        <Card className="rounded-2xl shadow-none">
+        <Card id="pool-builder" className="scroll-mt-4 rounded-2xl shadow-none">
           <CardHeader>
-            <CardTitle>{t('market.poolTitle')}</CardTitle>
+            <CardTitle>{editing.id ? t('pools.editing', { name: editing.name }) : t('market.poolTitle')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="flex flex-wrap gap-2">
@@ -279,6 +330,33 @@ export function MarketPage() {
                 <span className="absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">tUSDT</span>
               </div>
             </div>
+            {valid && (
+              <div className="space-y-3 border-t pt-4">
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('pools.asBenchmark')}</p>
+                  <VaultMixBar weights={clean} />
+                </div>
+                {address && (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      value={editing.name}
+                      maxLength={40}
+                      placeholder={t('pools.namePlaceholder')}
+                      aria-label={t('pools.namePlaceholder')}
+                      onChange={(e) => setEditing((x) => ({ ...x, name: e.target.value }))}
+                    />
+                    <Button className="shrink-0 rounded-full" disabled={poolBusy || !editing.name.trim()} onClick={() => void savePool(false)}>
+                      {editing.id ? t('pools.update') : t('pools.save')}
+                    </Button>
+                    {editing.id && (
+                      <Button variant="outline" className="shrink-0 rounded-full" disabled={poolBusy || !editing.name.trim()} onClick={() => void savePool(true)}>
+                        {t('pools.saveAsNew')}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
