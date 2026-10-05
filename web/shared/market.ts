@@ -65,7 +65,7 @@ export async function fetchMarket(rpcUrl = ORACLE_RPC_URL): Promise<MarketSnapsh
   const coins = await Promise.all(
     COINS.map(async (c): Promise<CoinMarket> => {
       const [closes, oracle] = await Promise.all([dailyCloses(c.pair), oraclePrice(provider, c.feed)])
-      const last = closes.at(-1) ?? 0
+      const last = closes[closes.length - 1] ?? 0 // not .at(): Vercel type-checks functions with an older lib
       const price = oracle?.price ?? last
       const at = (daysAgo: number) => closes[Math.max(0, closes.length - 1 - daysAgo)] ?? last
       return {
