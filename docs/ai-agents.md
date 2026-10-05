@@ -141,7 +141,7 @@ Once a chat is linked to a wallet, the bot is a full second front end for the sa
 | `/reset` | Clears the conversation (web + Telegram) |
 | `/stop` | Unlinks the chat and stops daily reports |
 
-Command replies and `/help` are in Indonesian for wallets set to Indonesian. Replies are plain text (markdown the model adds is stripped). Re-run `scripts/setup-telegram.sh` once to register the new commands in Telegram's menu.
+Linking is one wallet ↔ one chat: re-linking a wallet from another chat unlinks (and notifies) the old chat, and a chat that switches wallets stops receiving the old wallet's reports. Command replies and `/help` are in Indonesian for wallets set to Indonesian. Replies are plain text (markdown the model adds is stripped). Re-run `scripts/setup-telegram.sh` once to register the new commands in Telegram's menu.
 
 The bot shows "typing…" while the agents work, ignores Telegram's retries of the same `update_id`, shares the 30 messages / 10 min limit with the web chat, and always answers 200 so updates don't pile up.
 
