@@ -1,4 +1,5 @@
 import { RefreshCwIcon } from 'lucide-react'
+import { CoinIcon } from '@/components/brand/coin-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -95,9 +96,7 @@ export function MarketBoard({
                     <tr key={c.symbol} className="border-t">
                       <td className="px-2 py-2.5">
                         <span className="flex items-center gap-2.5">
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
-                            {c.symbol}
-                          </span>
+                          <CoinIcon symbol={c.symbol} size={32} />
                           <span>
                             <span className="block font-medium">{c.name}</span>
                             <span className="block text-xs text-muted-foreground">
