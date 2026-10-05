@@ -29,6 +29,7 @@ coinAI — AI-agent-managed auto-savings on every payment, on BNB Smart Chain te
 - Auth: wallet `personal_sign` of `loginMessage()` → `/api/auth` → HMAC bearer token (`http.ts`). All server env vars are listed in `web/.env.example` (no `VITE_` prefix = never shipped to the client).
 - Imports inside `api/` use `.js` extensions (nodenext). `api/` is typechecked by `tsconfig.api.json` as part of `npm run build`. Guard test: `node --test api/_lib/guard.test.ts`.
 - `vercel dev` (not `npm run dev`) is needed to serve `/api` locally.
+- Vercel Hobby allows **max 12 serverless functions** (one per file in `api/` outside `_lib/`; currently 11). Add routes to an existing file (method or query flag) rather than a new file.
 
 ## Web conventions
 
