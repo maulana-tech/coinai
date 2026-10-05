@@ -40,6 +40,13 @@ export type AgentRun = {
   report: string
 }
 
+export type PoolReview = {
+  verdict: 'fits' | 'too_risky' | 'too_cautious'
+  summary: string
+  reason: string
+  suggestion: Record<string, number> | null
+}
+
 export type LlmKey = { id: string; tail: string; addedAt: number }
 export type ChatMessage = { role: 'user' | 'assistant'; content: string }
 export type Subscription = { email?: string; telegramChatId?: number; locale: string } | null
@@ -134,6 +141,9 @@ export const agentApi = {
   profile: (address: string) => call<{ profile: InvestorProfile }>(address, '/api/agent/profile'),
   saveProfile: (address: string, profile: InvestorProfile) =>
     call<{ profile: InvestorProfile }>(address, '/api/agent/profile', { method: 'POST', body: JSON.stringify(profile) }),
+  // Market page: the Portfolio Reviewer judges a simulated pool ({ BNB: 70, BTC: 20, USDT: 10 }).
+  poolReview: (address: string, weights: Record<string, number>, locale: string) =>
+    call<{ review: PoolReview }>(address, '/api/pool', { method: 'POST', body: JSON.stringify({ weights, locale }) }),
   // Bring-your-own OpenRouter keys; the server only ever returns the last 4 characters.
   llmKeys: (address: string) => call<{ keys: LlmKey[] }>(address, '/api/agent/keys'),
   addLlmKey: (address: string, key: string) =>
