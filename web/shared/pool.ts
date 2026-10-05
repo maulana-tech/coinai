@@ -128,3 +128,24 @@ export function projectRange(amount: number, volatilityPct: number, horizons = [
     return { months, low: at(-z), mid: at(0), high: at(z) }
   })
 }
+
+// ─── Saved pools as the AI's strategy ────────────────────────────────────────
+// The contract only invests into three vaults, so a saved pool guides the Investment Strategist
+// through its risk mix: calm assets → Conservative, core assets → Balanced, the rest → Growth.
+
+export type VaultMix = { conservative: number; balanced: number; growth: number } // percent, sums to 100
+export type SavedPool = { id: string; name: string; weights: Weights; createdAt: number }
+
+const CORE = new Set<string>(['BTC', 'ETH', 'BNB', 'SPY', 'QQQ'])
+
+export function vaultTier(symbol: string): keyof VaultMix {
+  const asset = POOL_ASSETS.find((a) => a.symbol === symbol)
+  if (!asset || asset.category === 'stable' || asset.category === 'gold') return 'conservative'
+  return CORE.has(symbol) ? 'balanced' : 'growth'
+}
+
+export function vaultMix(weights: Weights): VaultMix {
+  const mix: VaultMix = { conservative: 0, balanced: 0, growth: 0 }
+  for (const [s, w] of Object.entries(weights)) mix[vaultTier(s)] += w ?? 0
+  return mix
+}
