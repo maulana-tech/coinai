@@ -8,5 +8,6 @@ interface ImportMetaEnv {
   readonly VITE_AGENT_ADDRESS?: string
   readonly VITE_RPC_URL?: string
   readonly VITE_CALL_RPC_URL?: string
+  readonly VITE_DEPOSIT_ROUTER_ADDRESS?: string
   readonly VITE_EXPLORER_URL?: string
 }
