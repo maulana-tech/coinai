@@ -1,9 +1,19 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
-// Coin logos from Cryptofonts/cryptoicons (GPL-3.0, see public/coins/). Falls back to the ticker
-// if a coin has no icon file.
-export function CoinIcon({ symbol, size = 32, className }: { symbol: string; size?: number; className?: string }) {
+// Coin logos from Cryptofonts/cryptoicons (GPL-3.0, public/coins/); stock logos built from
+// Simple Icons (CC0, public/stocks/). Falls back to a ticker badge when there's no file.
+export function CoinIcon({
+  symbol,
+  size = 32,
+  kind = 'coin',
+  className,
+}: {
+  symbol: string
+  size?: number
+  kind?: 'coin' | 'stock'
+  className?: string
+}) {
   const [missing, setMissing] = useState(false)
   if (missing)
     return (
@@ -17,7 +27,7 @@ export function CoinIcon({ symbol, size = 32, className }: { symbol: string; siz
     )
   return (
     <img
-      src={`/coins/${symbol.toLowerCase()}.svg`}
+      src={`/${kind === 'stock' ? 'stocks' : 'coins'}/${symbol.toLowerCase()}.svg`}
       alt=""
       width={size}
       height={size}
