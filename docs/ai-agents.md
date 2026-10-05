@@ -130,12 +130,18 @@ Once a chat is linked to a wallet, the bot is a full second front end for the sa
 
 | Message | What happens |
 |---|---|
-| any text | Chat Advisor with tools (`get_state`, `get_market`, `get_recent_runs`, `run_agent_team`); same conversation as the web chat |
+| any text | Chat Advisor with tools (`get_state` incl. saved pools and the active strategy, `get_market`, `get_assets` for 90-day stats of any pool asset incl. tokenized stocks and gold, `get_recent_runs`, `set_strategy`, `run_agent_team`); same conversation as the web chat |
+| `/portfolio` | Total savings, idle/spendable, position per vault, active strategy and its vault mix |
+| `/pools` | Saved pools with their vault mix; ✓ marks the AI benchmark |
+| `/use <name>` / `/use off` | Make a saved pool the AI benchmark (partial names match) or clear it |
+| `/deposit` | How to deposit tUSDT or tBNB, with a link to the app (the bot can't sign transactions) |
 | `/market` | Live Chainlink prices + Market Analyst read (works before linking) |
 | `/run` | Runs the agent team now and replies with the report + BscScan links |
 | `/report` | Report only, no transactions |
 | `/reset` | Clears the conversation (web + Telegram) |
 | `/stop` | Unlinks the chat and stops daily reports |
+
+Command replies and `/help` are in Indonesian for wallets set to Indonesian. Replies are plain text (markdown the model adds is stripped). Re-run `scripts/setup-telegram.sh` once to register the new commands in Telegram's menu.
 
 The bot shows "typing…" while the agents work, ignores Telegram's retries of the same `update_id`, shares the 30 messages / 10 min limit with the web chat, and always answers 200 so updates don't pile up.
 
