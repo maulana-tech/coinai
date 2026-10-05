@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Slider } from '@/components/ui/slider'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { agentApi, type PoolReview } from '@/lib/agent-api'
 import { intlLocale, useT, type MessageKey } from '@/lib/i18n'
 import { useMarket } from '@/lib/use-market'
@@ -17,13 +18,27 @@ import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
 import { fetchHistory } from '../../shared/market.js'
-import { backtest, normalizeWeights, POOL_ASSETS, projectRange, type History, type PoolSymbol, type Weights } from '../../shared/pool.js'
+import { backtest, normalizeWeights, POOL_ASSETS, projectRange, type AssetCategory, type History, type PoolSymbol, type Weights } from '../../shared/pool.js'
 
 const PRESETS: { label: MessageKey; weights: Weights }[] = [
   { label: 'market.presetExample', weights: { BNB: 70, BTC: 20, USDT: 10 } },
   { label: 'market.presetBalanced', weights: { BNB: 30, BTC: 25, ETH: 15, USDT: 30 } },
-  { label: 'market.presetCautious', weights: { BNB: 15, BTC: 10, USDT: 75 } },
+  { label: 'market.presetStocks', weights: { BNB: 30, SPY: 20, NVDA: 15, BTC: 15, PAXG: 10, USDT: 10 } },
+  { label: 'market.presetCautious', weights: { BNB: 15, BTC: 10, PAXG: 15, USDT: 60 } },
 ]
+// Builder tabs; gold and stablecoin share the "safer" tab.
+const TABS: { key: 'crypto' | 'stock' | 'safe'; label: MessageKey; categories: AssetCategory[] }[] = [
+  { key: 'crypto', label: 'market.tabCrypto', categories: ['crypto'] },
+  { key: 'stock', label: 'market.tabStocks', categories: ['stock'] },
+  { key: 'safe', label: 'market.tabSafe', categories: ['gold', 'stable'] },
+]
+const CATEGORY_COLOR: Record<AssetCategory, string> = {
+  crypto: 'bg-primary',
+  stock: 'bg-gold',
+  gold: 'bg-gold-ink',
+  stable: 'bg-muted-foreground/40',
+}
+const categoryOf = (s: string) => POOL_ASSETS.find((a) => a.symbol === s)?.category ?? 'stable'
 const VERDICT: Record<PoolReview['verdict'], { label: MessageKey; className: string }> = {
   fits: { label: 'market.verdictFits', className: 'bg-primary/15 text-primary-ink' },
   too_risky: { label: 'market.verdictRisky', className: 'bg-destructive/15 text-destructive' },
@@ -61,6 +76,7 @@ export function MarketPage() {
   const { market, loading, error, refresh } = useMarket()
   const [weights, setWeights] = useState<Weights>(PRESETS[0].weights)
   const [amount, setAmount] = useState('100')
+  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('crypto')
   const [history, setHistory] = useState<History | null>(null)
   const [historyError, setHistoryError] = useState(false)
   const [review, setReview] = useState<PoolReview | null>(null)
@@ -69,7 +85,10 @@ export function MarketPage() {
   useEffect(() => {
     const pairs = POOL_ASSETS.flatMap((a) => (a.pair ? [a.pair] : []))
     fetchHistory(pairs, 90)
-      .then((raw) => setHistory(Object.fromEntries(POOL_ASSETS.filter((a) => a.pair).map((a) => [a.symbol, raw[a.pair!]]))))
+      .then((raw) => {
+        if (!Object.keys(raw).length) return setHistoryError(true)
+        setHistory(Object.fromEntries(POOL_ASSETS.filter((a) => a.pair && raw[a.pair]).map((a) => [a.symbol, raw[a.pair!]])))
+      })
       .catch(() => setHistoryError(true))
   }, [])
 
@@ -80,6 +99,13 @@ export function MarketPage() {
   const ranges = stats ? projectRange(money, stats.volatility) : []
   const pct = (x: number) => `${x >= 0 ? '+' : ''}${new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: 1 }).format(x)}%`
   const usdt = (x: number) => `${new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: 2 }).format(x)} tUSDT`
+
+  const change90 = (s: PoolSymbol) => {
+    const c = history?.[s]
+    return c && c.length > 1 ? (c[c.length - 1] / c[0] - 1) * 100 : null
+  }
+  const held = Object.entries(clean) as [PoolSymbol, number][]
+  const tabAssets = POOL_ASSETS.filter((a) => TABS.find((x) => x.key === tab)!.categories.includes(a.category))
 
   const setWeight = (s: PoolSymbol, v: number) => {
     setWeights((w) => ({ ...w, [s]: Math.max(0, Math.min(100, Math.round(v))) }))
@@ -116,29 +142,65 @@ export function MarketPage() {
                 </Button>
               ))}
             </div>
-            <div className="space-y-3">
-              {POOL_ASSETS.map((a) => (
-                <div key={a.symbol} className="grid grid-cols-[7rem_1fr_4.5rem] items-center gap-3">
-                  <span className="flex items-center gap-2.5 text-sm">
-                    <CoinIcon symbol={a.symbol} size={28} />
-                    <span className="min-w-0">
-                      <span className="block font-medium">{a.symbol}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">{a.symbol === 'USDT' ? t('market.stable') : a.name}</span>
-                    </span>
+            {/* Composition across all tabs */}
+            <div className="space-y-2">
+              <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+                {held.map(([sym, w]) => (
+                  <div key={sym} className={cn('h-full border-r border-card last:border-r-0', CATEGORY_COLOR[categoryOf(sym)])} style={{ width: `${Math.min(w, 100)}%` }} title={`${sym} ${w}%`} />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {held.map(([sym, w]) => (
+                  <span key={sym} className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs tabular-nums">
+                    <CoinIcon symbol={sym} size={14} />
+                    {sym} {w}%
                   </span>
-                  <Slider value={[weights[a.symbol] ?? 0]} min={0} max={100} step={5} onValueChange={(v) => setWeight(a.symbol, v[0])} aria-label={a.symbol} />
-                  <div className="relative">
-                    <Input
-                      inputMode="numeric"
-                      value={String(weights[a.symbol] ?? 0)}
-                      onChange={(e) => setWeight(a.symbol, Number(e.target.value.replace(/\D/g, '')) || 0)}
-                      className="pr-6 text-right tabular-nums"
-                      aria-label={`${a.symbol} %`}
-                    />
-                    <span className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                ))}
+              </div>
+            </div>
+
+            <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+              <TabsList className="rounded-full">
+                {TABS.map((x) => (
+                  <TabsTrigger key={x.key} value={x.key} className="rounded-full px-4">
+                    {t(x.label)}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            <div className="space-y-3">
+              {tabAssets.map((a) => {
+                const c90 = change90(a.symbol)
+                return (
+                  <div key={a.symbol} className="grid grid-cols-[8rem_1fr_4.5rem] items-center gap-3">
+                    <span className="flex items-center gap-2.5 text-sm">
+                      <CoinIcon symbol={a.symbol} size={28} />
+                      <span className="min-w-0">
+                        <span className="block font-medium">{a.symbol}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {a.symbol === 'USDT' ? t('market.stable') : a.name}
+                          {c90 !== null && (
+                            <span className={cn('ml-1 tabular-nums', c90 >= 0 ? 'text-primary-ink' : 'text-destructive')}>{pct(c90)}</span>
+                          )}
+                        </span>
+                      </span>
+                    </span>
+                    <Slider value={[weights[a.symbol] ?? 0]} min={0} max={100} step={5} onValueChange={(v) => setWeight(a.symbol, v[0])} aria-label={a.symbol} />
+                    <div className="relative">
+                      <Input
+                        inputMode="numeric"
+                        value={String(weights[a.symbol] ?? 0)}
+                        onChange={(e) => setWeight(a.symbol, Number(e.target.value.replace(/\D/g, '')) || 0)}
+                        className="pr-6 text-right tabular-nums"
+                        aria-label={`${a.symbol} %`}
+                      />
+                      <span className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
+              {tab === 'stock' && <p className="text-xs text-muted-foreground">{t('market.stocksNote')}</p>}
             </div>
             <div className="flex items-center justify-between border-t pt-4 text-sm">
               <span className="text-muted-foreground">{t('market.total')}</span>
