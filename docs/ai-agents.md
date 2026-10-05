@@ -29,6 +29,18 @@ Each role has its own page in the app at `/app/agent/<role>` (`market`, `savings
 
 The user builds a hypothetical pool (e.g. 70% BNB, 20% BTC, 10% USDT) from crypto (BNB, BTC, ETH, CAKE, SOL, XRP, DOGE, LINK, AVAX), **tokenized US stocks and ETFs** (27 stocks such as Apple, Microsoft, NVIDIA, Tesla, plus SPY, QQQ and SMH: Binance's 24/7 `…BUSDT` tokens that track the share price; listings under ~2 months old and leveraged ETFs are left out), tokenized gold (PAXG) and stablecoin; list in `web/shared/pool.ts`. The browser backtests it on 90 days of Binance daily closes (daily rebalance: return, annualized volatility, worst drawdown) and shows an 80% range for 3/6/12 months from volatility alone (zero drift, not a forecast). `POST /api/pool` recomputes the stats server-side and asks the **Portfolio Reviewer** (LLM, `risk` model) to judge the pool against the investor profile and the Market Analyst's read: `fits` / `too_risky` / `too_cautious`, a short summary and a suggested mix the user can apply. Nothing is bought; investing in coin pools is a roadmap item (a crypto vault needs a CoinAI v2 deployment). Coin icons: Cryptofonts/cryptoicons (GPL-3.0, `web/public/coins/`); stock logos built from Simple Icons (CC0, `web/public/stocks/`).
 
+## Saved pools as the AI's strategy
+
+On the Market page the user can save pools by name (up to 10, `POST/PUT/DELETE /api/pools`, KV `pools:<wallet>`) and make one the **AI benchmark**. Because the contract only invests into the three vaults, the pool steers the Investment Strategist through its risk mix (`vaultMix` in `web/shared/pool.ts`):
+
+| Pool assets | Vault |
+|---|---|
+| Stablecoin, gold (PAXG) | Conservative |
+| BTC, ETH, BNB, index ETFs (SPY, QQQ) | Balanced |
+| Other coins, single stocks, sector ETFs | Growth |
+
+The strategist aims for that mix and may deviate by at most 15 points per vault (risk-off market or a clear profile mismatch), citing the strategy by name; the Risk Officer treats a strategy-consistent allocation as the user's explicit choice. Each run records the strategy it used (`RunResult.strategy`), shown on AI Portfolio. Verified on testnet: "Pool 1 Agresif" (10/40/50) → allocation 15/45/40 for a moderate profile, 3 vault deposits executed.
+
 ## Market data
 
 | Data | Source | Where |
