@@ -1,4 +1,4 @@
-import { env, readUserState } from '../_lib/chain.js'
+import { dripYield, env, readUserState } from '../_lib/chain.js'
 import { policyActive } from '../_lib/guard.js'
 import { json } from '../_lib/http.js'
 import { kv } from '../_lib/kv.js'
@@ -14,6 +14,7 @@ import { getMarket, runSwarm, saveSnapshot } from '../_lib/swarm.js'
 export async function GET(req: Request) {
   if (req.headers.get('authorization') !== `Bearer ${env('CRON_SECRET')}`) return json({ error: 'forbidden' }, 403)
 
+  const drip = await dripYield().catch((e) => [{ error: (e as Error).message }])
   const users = await kv.smembers('users')
   const results: { user: string; executed: number; delivered: boolean; errors: string[] }[] = []
 
@@ -44,5 +45,5 @@ export async function GET(req: Request) {
     }
     results.push({ user, executed, delivered, errors })
   }
-  return json({ users: users.length, results })
+  return json({ users: users.length, drip, results })
 }
