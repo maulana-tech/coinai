@@ -29,17 +29,19 @@ export async function POST(req: Request) {
     const stats = backtest(weights, history)
     const perAsset = POOL_ASSETS.filter((a) => a.pair && history[a.symbol]).map((a) => {
       const s = backtest({ [a.symbol]: 100 }, history)
-      return { symbol: a.symbol, return90d: round(s.totalReturn), volatility: round(s.volatility), maxDrawdown: round(s.maxDrawdown) }
+      return { symbol: a.symbol, name: a.name, category: a.category, return90d: round(s.totalReturn), volatility: round(s.volatility), maxDrawdown: round(s.maxDrawdown) }
     })
     const [profile, market] = await Promise.all([getProfile(user), getMarketAnalysis().catch(() => null)])
 
     const review = await withUserKeys(user, () =>
       askJson<Review>(
         'risk',
-        `You are coinAI's Portfolio Reviewer. A saver built a hypothetical crypto pool (a simulation, nothing is bought).
+        `You are coinAI's Portfolio Reviewer. A saver built a hypothetical pool (a simulation, nothing is bought) from crypto,
+tokenized US stocks (Binance 24/7 tokens that track the share price, e.g. AAPL, SPY), tokenized gold (PAXG) and stablecoin (USDT).
 Judge it against their investor profile and the current market read. Be concrete and calm; cite the numbers.
 - verdict: "fits" if risk matches the profile, "too_risky" if volatility/drawdown/concentration exceed it, "too_cautious" if a long-horizon aggressive saver holds mostly stablecoin.
-- Concentration above 60% in one volatile coin is a red flag for conservative or short-horizon savers.
+- Concentration above 60% in one volatile coin or one single stock is a red flag for conservative or short-horizon savers.
+- Diversifying across categories (crypto, stocks, gold, stablecoin) lowers risk; SPY is a broad index, single stocks are riskier; gold and stablecoin are the calm part.
 - In a risk_off market, favour more stablecoin; in risk_on, some more growth is reasonable for aggressive profiles.
 - suggestion: an improved allocation over the same asset list (${POOL_ASSETS.map((a) => a.symbol).join(', ')}), integer percents summing to 100. Keep it close to the user's pool when it already fits.
 - Never promise returns. This is not financial advice.
@@ -65,5 +67,17 @@ JSON shape: {"verdict":"fits"|"too_risky"|"too_cautious","summary":"...","sugges
 
 const round = (x: number) => Math.round(x * 10) / 10
 // Free models occasionally leak Chinese characters into English/Indonesian replies.
-const clean = (text: unknown, locale: string) =>
-  locale === 'zh' ? String(text ?? '') : String(text ?? '').replace(/[\u3000-\u9fff\uff00-\uffef]+/g, '').replace(/ {2,}/g, ' ')
+// and internal regime codes (risk_on / risk_off) despite the prompt; say it in plain words instead.
+const REGIME_WORDS: Record<string, [string, string, string]> = {
+  en: ['an uptrending market', 'a falling market', 'a mixed market'],
+  id: ['pasar yang sedang naik', 'pasar yang sedang turun', 'pasar yang campur'],
+  zh: ['上涨的市场', '下跌的市场', '震荡的市场'],
+}
+const clean = (text: unknown, locale: string) => {
+  const [up, down, mixed] = REGIME_WORDS[locale] ?? REGIME_WORDS.en
+  const s = String(text ?? '')
+    .replace(/(kondisi |the )?risk[_ -]on( market)?/gi, up)
+    .replace(/(kondisi |the )?risk[_ -]off( market)?/gi, down)
+    .replace(/\bneutral market\b/gi, mixed)
+  return locale === 'zh' ? s : s.replace(/[\u3000-\u9fff\uff00-\uffef]+/g, '').replace(/ {2,}/g, ' ')
+}
