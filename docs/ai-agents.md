@@ -25,6 +25,10 @@ The orchestrator (`web/api/_lib/swarm.ts`) is plain TypeScript, so the sequence 
 
 Each role has its own page in the app at `/app/agent/<role>` (`market`, `savings`, `investment`, `guardrails`, `risk`, `executor`, `reporter`) showing what it reads, its limits, a role-specific panel (live market board, investor profile + latest allocation, on-chain limits, approvals vs vetoes, transactions, latest report) and its recent decisions.
 
+## Pool simulator and Portfolio Reviewer (`/app/market`)
+
+The user builds a hypothetical pool (e.g. 70% BNB, 20% BTC, 10% USDT; assets in `web/shared/pool.ts`). The browser backtests it on 90 days of Binance daily closes (daily rebalance: return, annualized volatility, worst drawdown) and shows an 80% range for 3/6/12 months from volatility alone (zero drift, not a forecast). `POST /api/pool` recomputes the stats server-side and asks the **Portfolio Reviewer** (LLM, `risk` model) to judge the pool against the investor profile and the Market Analyst's read: `fits` / `too_risky` / `too_cautious`, a short summary and a suggested mix the user can apply. Nothing is bought; investing in coin pools is a roadmap item (a crypto vault needs a CoinAI v2 deployment). Coin icons: Cryptofonts/cryptoicons (GPL-3.0, `web/public/coins/`).
+
 ## Market data
 
 | Data | Source | Where |
