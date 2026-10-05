@@ -128,10 +128,16 @@ function Portfolio({ address }: { address: string }) {
           {locked && <LockIcon className="mt-0.5 size-4 shrink-0" />}
           {blockedBy ?? t('portfolio.applyHint')}
         </p>
-        <Button className="shrink-0 rounded-full" disabled={running || !!blockedBy} onClick={() => void apply()}>
-          {running ? <Loader2Icon className="mr-2 size-4 animate-spin" /> : <BotIcon className="mr-2 size-4" />}
-          {running ? t('agent.running') : t('portfolio.apply')}
-        </Button>
+        {!locked && idle < MIN_INVEST ? (
+          <Button asChild className="shrink-0 rounded-full">
+            <Link to="/app/faucet#deposit">{t('portfolio.deposit')}</Link>
+          </Button>
+        ) : (
+          <Button className="shrink-0 rounded-full" disabled={running || !!blockedBy} onClick={() => void apply()}>
+            {running ? <Loader2Icon className="mr-2 size-4 animate-spin" /> : <BotIcon className="mr-2 size-4" />}
+            {running ? t('agent.running') : t('portfolio.apply')}
+          </Button>
+        )}
       </div>
     )
   })()
