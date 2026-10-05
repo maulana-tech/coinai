@@ -1,6 +1,6 @@
 import { Contract, EventLog, JsonRpcProvider, ZeroHash, zeroPadValue } from 'ethers'
 import { agentApi, hasAgentSession } from '@/lib/agent-api'
-import { CONTRACT_ID, DEPLOY_BLOCK, logsProvider, TOKEN_ADDRESS } from '@/lib/config'
+import { CONTRACT_ID, DEPLOY_BLOCK, DEPOSIT_ROUTER_ADDRESS, logsProvider, TOKEN_ADDRESS } from '@/lib/config'
 import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
 
 export type ActivityItem = {
@@ -23,6 +23,8 @@ export type ActivityItem = {
   txHash: string // '' for off-chain rows (agent runs)
   from?: string
   to?: string
+  // pay rows that are the user's own deposit: from their wallet, or tBNB via the deposit router
+  via?: 'wallet' | 'bnb'
   amount?: bigint
   saved?: bigint
   shares?: bigint
@@ -92,7 +94,9 @@ function decodeLogs(logs: EventLog[], user: string): ActivityItem[] {
       const from = String(log.args.from)
       const to = String(log.args.to)
       if (to.toLowerCase() === userLc) {
-        out.push({ ...base, kind: 'pay', from, amount: BigInt(log.args.amount), saved: BigInt(log.args.savingsAmount) })
+        const via =
+          from.toLowerCase() === userLc ? 'wallet' : from.toLowerCase() === DEPOSIT_ROUTER_ADDRESS.toLowerCase() ? 'bnb' : undefined
+        out.push({ ...base, kind: 'pay', from, via, amount: BigInt(log.args.amount), saved: BigInt(log.args.savingsAmount) })
       } else if (from.toLowerCase() === userLc) {
         out.push({ ...base, kind: 'paid', to, amount: BigInt(log.args.amount) })
       }
