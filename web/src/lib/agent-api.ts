@@ -5,6 +5,7 @@ import { signMessage } from '@wagmi/core'
 import { config } from '@/lib/wagmi'
 import { AGENT_ADDRESS } from '@/lib/config'
 import type { AgentPolicy, YieldTarget } from '@/lib/types'
+import type { SavedPool, VaultMix } from '../../shared/pool.js'
 
 export type AgentStep = {
   agent: 'market' | 'savings' | 'investment' | 'guard' | 'risk' | 'executor'
@@ -34,11 +35,14 @@ export type AgentRun = {
   profile?: InvestorProfile
   market?: MarketAnalysis | null
   allocation?: Record<YieldTarget, number> | null
+  strategy?: { name: string; vaultMix: VaultMix } | null
   steps: AgentStep[]
   executed: { kind: string; reason: string; txHash: string; explorer: string }[]
   reminders: string[]
   report: string
 }
+
+export type PoolStore = { pools: SavedPool[]; activeId: string | null }
 
 export type PoolReview = {
   verdict: 'fits' | 'too_risky' | 'too_cautious'
@@ -141,6 +145,14 @@ export const agentApi = {
   profile: (address: string) => call<{ profile: InvestorProfile }>(address, '/api/agent/profile'),
   saveProfile: (address: string, profile: InvestorProfile) =>
     call<{ profile: InvestorProfile }>(address, '/api/agent/profile', { method: 'POST', body: JSON.stringify(profile) }),
+  // Saved pools; the active one is the benchmark the Investment Strategist follows.
+  pools: (address: string) => call<PoolStore>(address, '/api/pools'),
+  savePool: (address: string, pool: { id?: string; name: string; weights: Record<string, number> }) =>
+    call<PoolStore>(address, '/api/pools', { method: 'POST', body: JSON.stringify(pool) }),
+  setActivePool: (address: string, activeId: string | null) =>
+    call<PoolStore>(address, '/api/pools', { method: 'PUT', body: JSON.stringify({ activeId }) }),
+  deletePool: (address: string, id: string) =>
+    call<PoolStore>(address, '/api/pools', { method: 'DELETE', body: JSON.stringify({ id }) }),
   // Market page: the Portfolio Reviewer judges a simulated pool ({ BNB: 70, BTC: 20, USDT: 10 }).
   poolReview: (address: string, weights: Record<string, number>, locale: string) =>
     call<{ review: PoolReview }>(address, '/api/pool', { method: 'POST', body: JSON.stringify({ weights, locale }) }),
