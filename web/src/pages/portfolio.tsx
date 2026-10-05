@@ -252,6 +252,20 @@ function Portfolio({ address }: { address: string }) {
                 <p className="mt-1">{reason}</p>
               </div>
             )}
+            <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('portfolio.strategy')}</p>
+                <p className="mt-0.5 truncate font-medium">{plan?.strategy?.name ?? t('portfolio.noStrategy')}</p>
+                {plan?.strategy && (
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {t('portfolio.strategyMix', plan.strategy.vaultMix)}
+                  </p>
+                )}
+              </div>
+              <Link to="/app/market" className="shrink-0 text-xs font-medium text-primary-ink hover:underline">
+                {t(plan?.strategy ? 'portfolio.changeStrategy' : 'portfolio.setStrategy')}
+              </Link>
+            </div>
             {!profile && !plan && <p className="text-muted-foreground">{t('portfolio.whyEmpty')}</p>}
             <Link
               to="/app/agent/investment"
