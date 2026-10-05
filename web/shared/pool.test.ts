@@ -1,7 +1,7 @@
 // Run: node --test shared/pool.test.ts
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { backtest, normalizeWeights, projectRange } from './pool.ts'
+import { backtest, normalizeWeights, projectRange, vaultMix } from './pool.ts'
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-9
 
@@ -36,4 +36,9 @@ test('zero volatility means no range; more volatility, wider range', () => {
   const [wild] = projectRange(100, 80, [12])
   assert.ok(wild.high - wild.low > calm.high - calm.low)
   assert.ok(calm.low < 100 && calm.high > 100)
+})
+
+test('a pool maps to a vault mix by risk tier', () => {
+  assert.deepEqual(vaultMix({ BNB: 70, BTC: 20, USDT: 10 }), { conservative: 10, balanced: 90, growth: 0 })
+  assert.deepEqual(vaultMix({ SPY: 20, NVDA: 30, SOL: 10, PAXG: 15, USDT: 25 }), { conservative: 40, balanced: 20, growth: 40 })
 })
