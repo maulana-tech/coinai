@@ -87,6 +87,7 @@ export async function fetchMarket(rpcUrl = ORACLE_RPC_URL): Promise<MarketSnapsh
 
 /** Daily closes (oldest first) for several Binance pairs, e.g. for the pool simulator. */
 export async function fetchHistory(pairs: string[], days = 90): Promise<Record<string, number[]>> {
-  const rows = await Promise.all(pairs.map(async (p) => [p, await dailyCloses(p, days + 1)] as const))
-  return Object.fromEntries(rows)
+  // A pair that fails (delisted, rate-limited) is skipped instead of failing the whole pool.
+  const rows = await Promise.allSettled(pairs.map(async (p) => [p, await dailyCloses(p, days + 1)] as const))
+  return Object.fromEntries(rows.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : [])))
 }
