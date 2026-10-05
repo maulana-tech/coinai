@@ -8,6 +8,7 @@ import {
   WalletIcon,
 } from 'lucide-react'
 import { ConnectPrompt } from '@/components/connect-prompt'
+import { DepositCard } from '@/components/deposit-card'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -185,6 +186,8 @@ export function FaucetPage() {
           )}
         </CardContent>
       </Card>
+
+      <DepositCard />
 
       <div className="flex justify-center">
         <Button variant="link" onClick={() => navigate('/app')}>
