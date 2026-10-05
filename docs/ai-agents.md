@@ -25,6 +25,22 @@ The orchestrator (`web/api/_lib/swarm.ts`) is plain TypeScript, so the sequence 
 
 Each role has its own page in the app at `/app/agent/<role>` (`market`, `savings`, `investment`, `guardrails`, `risk`, `executor`, `reporter`) showing what it reads, its limits, a role-specific panel (live market board, investor profile + latest allocation, on-chain limits, approvals vs vetoes, transactions, latest report) and its recent decisions.
 
+## Pool simulator and Portfolio Reviewer (`/app/market`)
+
+The user builds a hypothetical pool (e.g. 70% BNB, 20% BTC, 10% USDT) from crypto (BNB, BTC, ETH, CAKE, SOL, XRP, DOGE, LINK, AVAX), **tokenized US stocks and ETFs** (27 stocks such as Apple, Microsoft, NVIDIA, Tesla, plus SPY, QQQ and SMH: Binance's 24/7 `…BUSDT` tokens that track the share price; listings under ~2 months old and leveraged ETFs are left out), tokenized gold (PAXG) and stablecoin; list in `web/shared/pool.ts`. The browser backtests it on 90 days of Binance daily closes (daily rebalance: return, annualized volatility, worst drawdown) and shows an 80% range for 3/6/12 months from volatility alone (zero drift, not a forecast). `POST /api/pool` recomputes the stats server-side and asks the **Portfolio Reviewer** (LLM, `risk` model) to judge the pool against the investor profile and the Market Analyst's read: `fits` / `too_risky` / `too_cautious`, a short summary and a suggested mix the user can apply. Nothing is bought; investing in coin pools is a roadmap item (a crypto vault needs a CoinAI v2 deployment). Coin icons: Cryptofonts/cryptoicons (GPL-3.0, `web/public/coins/`); stock logos built from Simple Icons (CC0, `web/public/stocks/`).
+
+## Saved pools as the AI's strategy
+
+On the Market page the user can save pools by name (up to 10, `POST/PUT/DELETE /api/pools`, KV `pools:<wallet>`) and make one the **AI benchmark**. Because the contract only invests into the three vaults, the pool steers the Investment Strategist through its risk mix (`vaultMix` in `web/shared/pool.ts`):
+
+| Pool assets | Vault |
+|---|---|
+| Stablecoin, gold (PAXG) | Conservative |
+| BTC, ETH, BNB, index ETFs (SPY, QQQ) | Balanced |
+| Other coins, single stocks, sector ETFs | Growth |
+
+The strategist aims for that mix and may deviate by at most 15 points per vault (risk-off market or a clear profile mismatch), citing the strategy by name; the Risk Officer treats a strategy-consistent allocation as the user's explicit choice. Each run records the strategy it used (`RunResult.strategy`), shown on AI Portfolio. Verified on testnet: "Pool 1 Agresif" (10/40/50) → allocation 15/45/40 for a moderate profile, 3 vault deposits executed.
+
 ## Market data
 
 | Data | Source | Where |
@@ -114,12 +130,18 @@ Once a chat is linked to a wallet, the bot is a full second front end for the sa
 
 | Message | What happens |
 |---|---|
-| any text | Chat Advisor with tools (`get_state`, `get_market`, `get_recent_runs`, `run_agent_team`); same conversation as the web chat |
+| any text | Chat Advisor with tools (`get_state` incl. saved pools and the active strategy, `get_market`, `get_assets` for 90-day stats of any pool asset incl. tokenized stocks and gold, `get_recent_runs`, `set_strategy`, `run_agent_team`); same conversation as the web chat |
+| `/portfolio` | Total savings, idle/spendable, position per vault, active strategy and its vault mix |
+| `/pools` | Saved pools with their vault mix; ✓ marks the AI benchmark |
+| `/use <name>` / `/use off` | Make a saved pool the AI benchmark (partial names match) or clear it |
+| `/deposit` | How to deposit tUSDT or tBNB, with a link to the app (the bot can't sign transactions) |
 | `/market` | Live Chainlink prices + Market Analyst read (works before linking) |
 | `/run` | Runs the agent team now and replies with the report + BscScan links |
 | `/report` | Report only, no transactions |
 | `/reset` | Clears the conversation (web + Telegram) |
 | `/stop` | Unlinks the chat and stops daily reports |
+
+Linking is one wallet ↔ one chat: re-linking a wallet from another chat unlinks (and notifies) the old chat, and a chat that switches wallets stops receiving the old wallet's reports. Command replies and `/help` are in Indonesian for wallets set to Indonesian. Replies are plain text (markdown the model adds is stripped). Re-run `scripts/setup-telegram.sh` once to register the new commands in Telegram's menu.
 
 The bot shows "typing…" while the agents work, ignores Telegram's retries of the same `update_id`, shares the 30 messages / 10 min limit with the web chat, and always answers 200 so updates don't pile up.
 

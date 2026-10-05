@@ -44,8 +44,8 @@ export function annualizedVolatility(closes: number[]): number {
   return Math.sqrt(variance) * Math.sqrt(365) * 100
 }
 
-async function dailyCloses(pair: string): Promise<number[]> {
-  const res = await fetch(`${CANDLES_URL}?symbol=${pair}&interval=1d&limit=31`, { signal: AbortSignal.timeout(10_000) })
+async function dailyCloses(pair: string, limit = 31): Promise<number[]> {
+  const res = await fetch(`${CANDLES_URL}?symbol=${pair}&interval=1d&limit=${limit}`, { signal: AbortSignal.timeout(10_000) })
   if (!res.ok) throw new Error(`candles ${pair}: ${res.status}`)
   const rows = (await res.json()) as [number, string, string, string, string][]
   return rows.map((row) => Number(row[4]))
@@ -83,4 +83,11 @@ export async function fetchMarket(rpcUrl = ORACLE_RPC_URL): Promise<MarketSnapsh
     }),
   )
   return { at: new Date().toISOString(), coins }
+}
+
+/** Daily closes (oldest first) for several Binance pairs, e.g. for the pool simulator. */
+export async function fetchHistory(pairs: string[], days = 90): Promise<Record<string, number[]>> {
+  // A pair that fails (delisted, rate-limited) is skipped instead of failing the whole pool.
+  const rows = await Promise.allSettled(pairs.map(async (p) => [p, await dailyCloses(p, days + 1)] as const))
+  return Object.fromEntries(rows.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : [])))
 }
