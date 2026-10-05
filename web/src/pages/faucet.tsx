@@ -26,7 +26,10 @@ function formatUnits(wei: bigint | null, decimals: number): string {
   if (wei === 0n) return '0'
   const s = wei.toString()
   if (s.length <= decimals) {
-    const frac = s.padStart(decimals, '0').replace(/0+$/, '')
+    // keep 2 significant digits for small balances: 0.0000894725… → 0.000089
+    const padded = s.padStart(decimals, '0')
+    const firstDigit = padded.search(/[1-9]/)
+    const frac = padded.slice(0, Math.min(decimals, Math.max(4, firstDigit + 2))).replace(/0+$/, '')
     return frac ? `0.${frac}` : '0'
   }
   const intPart = s.slice(0, s.length - decimals)
