@@ -148,7 +148,22 @@ export async function POST(req: Request) {
         await sendTelegram(chatId, 'This link has expired. Generate a new one from the coinAI app.')
       } else {
         await kv.del(`tglink:${code}`)
-        await setSub(linkUser, { ...((await getSub(linkUser)) ?? { locale: 'en' }), telegramChatId: chatId })
+        // One wallet ↔ one chat. Unlink the wallet's previous chat (it must not keep control), and the
+        // wallet this chat pointed to before (it must not keep sending its reports here).
+        const linkSub = (await getSub(linkUser)) ?? { locale: 'en' as const }
+        if (linkSub.telegramChatId && linkSub.telegramChatId !== chatId) {
+          await kv.del(`tgchat:${linkSub.telegramChatId}`)
+          await sendTelegram(linkSub.telegramChatId, 'This chat was unlinked: the wallet was connected to another Telegram chat.').catch(() => {})
+        }
+        const previousUser = await kv.get<string>(`tgchat:${chatId}`)
+        if (previousUser && previousUser !== linkUser) {
+          const prevSub = await getSub(previousUser)
+          if (prevSub?.telegramChatId === chatId) {
+            delete prevSub.telegramChatId
+            await setSub(previousUser, prevSub)
+          }
+        }
+        await setSub(linkUser, { ...linkSub, telegramChatId: chatId })
         await kv.set(`tgchat:${chatId}`, linkUser)
         await kv.sadd('users', linkUser)
         await sendTelegram(chatId, `✅ Connected to ${linkUser.slice(0, 6)}…${linkUser.slice(-4)}. You'll get a daily report here, and you can chat with me any time.\n\n${helpFor((await getSub(linkUser))?.locale ?? 'en')}`)
