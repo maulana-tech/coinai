@@ -155,7 +155,7 @@ export function YieldPositionCard({
           </span>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          {t('yield.estimateHint')} {t('yield.earningsCaption')}
+          {t('yield.estimateHint')} {t('yield.earningsCaption')} {t('yield.simulatedNote')}
         </p>
       </CardContent>
     </Card>

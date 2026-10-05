@@ -77,7 +77,11 @@ Structured roles ask for `response_format: json_object` and the parser tolerates
 | Telegram `/run` | `POST /api/telegram` (1×/min) | Yes |
 | Telegram `/report` | `POST /api/telegram` | No (report only) |
 
+Payments also trigger **autopilot** (`POST /api/agent/nudge`), including deposits from the user's own wallet (tUSDT, or tBNB through the DepositRouter).
+
 If the user hasn't enabled the agent (or it expired), the run is **report-only**: no proposals, just the report and reminders.
+
+On testnet every run (and the daily cron) first calls the **yield simulator**, so vault positions grow with their APY (sped up 30×) and the agents' allocation shows real earnings. See `docs/architecture.md`.
 
 ## Reports and reminders
 

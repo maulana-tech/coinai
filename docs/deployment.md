@@ -81,9 +81,20 @@ CoinAI:             0x...
   --constructor-args $(cast abi-encode "constructor(address,address[3])" <USDT> "[<V1>,<V2>,<V3>]")
 ```
 
+### Deposit router (tBNB → tUSDT)
+
+Deployed separately next to the live CoinAI (no redeploy of the others):
+
+```bash
+COINAI=<coinai> TOKEN=<tUSDT> TREASURY=<agent wallet> \
+  forge script script/DeployRouter.s.sol --rpc-url bsc_testnet --broadcast --private-key $DEPLOYER_PRIVATE_KEY
+```
+
+It fills its tUSDT reserve from the faucet on deploy; anyone can call `refill()` once a day. Live: `0x2e72901f3350b7f3f5E4E35918a6e4b4dC5bf104`.
+
 ### After deploying
 
-Write the addresses into `deployments.json` (the source of truth), then fill in the env vars in section 3.
+Write the addresses into `deployments.json` (the source of truth) and `web/shared/deployment.ts`, then fill in the env vars in section 3.
 
 ---
 

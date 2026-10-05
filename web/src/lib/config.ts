@@ -19,6 +19,9 @@ export const COINAI_ADDRESS: string = import.meta.env.VITE_COINAI_ADDRESS ?? DEP
 export const TOKEN_ADDRESS: string =
   import.meta.env.VITE_TOKEN_ADDRESS ?? import.meta.env.VITE_USDT_ADDRESS ?? DEPLOYMENT.token
 // Public address of the backend agent wallet (AGENT_PRIVATE_KEY); users authorize it via setAgent.
+// Empty in mock mode (no tBNB deposits there).
+export const DEPOSIT_ROUTER_ADDRESS: string =
+  import.meta.env.VITE_DEPOSIT_ROUTER_ADDRESS ?? (COINAI_ADDRESS === '' ? '' : DEPLOYMENT.depositRouter)
 export const AGENT_ADDRESS: string = import.meta.env.VITE_AGENT_ADDRESS ?? ''
 // Block CoinAI was deployed at; activity history is scanned from here.
 export const DEPLOY_BLOCK = Number(import.meta.env.VITE_DEPLOY_BLOCK || DEPLOYMENT.deployBlock)

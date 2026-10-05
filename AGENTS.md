@@ -8,7 +8,7 @@ coinAI — AI-agent-managed auto-savings on every payment, on BNB Smart Chain te
 - `web/`: `npm install`, `npm run dev`, `npm run lint` (oxlint), `npm run build` (runs `tsc -b` typecheck then `vite build`). No web test suite.
 - Landing (`web/src/pages/landing.tsx`) is a film-led editorial page: looping videos + posters live in `web/public/landing/` (generated with Higgsfield, ping-pong looped with ffmpeg). Copy is i18n'd under `lp.*`.
 - READMEs cite `/Users/em/.foundry/bin/forge` (a dead Mac path) — just use `forge` from PATH.
-- Deploys (BSC Testnet, chain 97): `forge script script/DeployAll.s.sol --rpc-url bsc_testnet --broadcast --private-key $DEPLOYER_PRIVATE_KEY` — deploys MockUSDT, 3 SimpleVaults, CoinAI in one go (foundry.toml aliases `bsc_testnet` to `$BSC_TESTNET_RPC_URL`). forge lives at `~/.foundry/bin/forge` (not on PATH).
+- Deploys (BSC Testnet, chain 97): `forge script script/DeployAll.s.sol --rpc-url bsc_testnet --broadcast --private-key $DEPLOYER_PRIVATE_KEY` — deploys MockUSDT, 3 SimpleVaults, CoinAI in one go (foundry.toml aliases `bsc_testnet` to `$BSC_TESTNET_RPC_URL`). `script/DeployRouter.s.sol` adds the tBNB DepositRouter next to an existing deployment. forge lives at `~/.foundry/bin/forge` (not on PATH).
 - Git workflow: `push.sh` (bash, needs Git Bash) commits one file per commit with conventional-commit types inferred from filename; history matches. Don't batch commits.
 
 ## Gotchas

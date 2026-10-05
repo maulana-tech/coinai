@@ -9,7 +9,7 @@
 // contract both enforce the user's on-chain limits. Missing/invalid reviews fail closed.
 
 import { fetchMarket, type MarketSnapshot } from '../../shared/market.js'
-import { describe, execute, explorerTx, fmt, readUserState, type UserState } from './chain.js'
+import { describe, dripYield, execute, explorerTx, fmt, readUserState, type UserState } from './chain.js'
 import { checkProposal, policyActive, TARGETS, type Proposal, type Target } from './guard.js'
 import { askJson, complete, withUserKeys } from './llm.js'
 import { kv } from './kv.js'
@@ -281,6 +281,8 @@ export async function runSwarm(
 ): Promise<RunResult> {
   await kv.set(runningKey(user), Date.now(), 300).catch(() => {})
   try {
+    // Testnet: accrue simulated vault yield first, so the report reflects it (never blocks the run).
+    await dripYield().catch((e) => console.error('dripYield', e))
     return await withUserKeys(user, () => runTeam(user, opts))
   } finally {
     await kv.del(runningKey(user)).catch(() => {})

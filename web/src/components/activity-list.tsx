@@ -131,6 +131,11 @@ export function ActivityList({ items, loading }: ActivityListProps) {
   const describe = (item: ActivityItem): { title: string; detail?: string } => {
     switch (item.kind) {
       case 'pay':
+        if (item.via)
+          return {
+            title: t('activity.deposit', { amount: money(item.amount), saved: money(item.saved) }),
+            detail: t(item.via === 'bnb' ? 'activity.depositViaBnb' : 'activity.depositViaWallet'),
+          }
         return {
           title: t('activity.pay', { amount: money(item.amount), saved: money(item.saved) }),
           detail: item.from && item.from.toLowerCase() !== address?.toLowerCase() ? t('activity.fromAddr', { addr: short(item.from) }) : undefined,

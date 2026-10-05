@@ -2,6 +2,7 @@ import { Contract, Wallet, formatUnits, getAddress } from 'ethers'
 import { DEPLOYMENT } from '../../shared/deployment.js'
 import { CALL_RPC, rpcProvider } from '../../shared/rpc.js'
 import { TARGETS, type Policy, type Proposal, type Target } from './guard.js'
+import { kv } from './kv.js'
 
 const TOKEN_DECIMALS = 6 // tUSDT, see evm/src/MockUSDT.sol
 
@@ -154,4 +155,65 @@ export async function execute(user: string, p: Proposal): Promise<string> {
       : await c.agentInvest(user, p.amount, TARGETS.indexOf(p.target), p.reason)
   await tx.wait()
   return tx.hash as string
+}
+
+// ─── Testnet yield simulator ─────────────────────────────────────────────────
+// SimpleVault's APY is only metadata, so on testnet nothing ever grows. The agent wallet tops each
+// vault up with tUSDT in proportion to its APY and the time since the last drip; share price =
+// vault balance / shares, so every depositor's position really grows on-chain. Time is sped up
+// (YIELD_SPEEDUP, default 30×) so a demo shows movement within a day. tUSDT comes from the faucet.
+// ponytail: testnet only; on mainnet the vaults route into Venus/Lista and earn real yield.
+
+const DRIP_TOKEN_ABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function transfer(address,uint256) returns (bool)',
+  'function faucet()',
+  'function lastFaucetAt(address) view returns (uint256)',
+]
+const DRIP_MIN_INTERVAL = 600 // seconds between drips
+const YEAR = 365 * 86400
+
+export const yieldSpeedup = () => Number(process.env.YIELD_SPEEDUP || 30)
+
+/** Simulated yield accrued since `elapsed` seconds for a vault (pure, for tests). */
+export function dripAmount(tvl: bigint, apyBps: number, elapsed: number, speedup: number): bigint {
+  if (tvl <= 0n || elapsed <= 0) return 0n
+  return (tvl * BigInt(apyBps) * BigInt(Math.floor(elapsed * speedup))) / (10_000n * BigInt(YEAR))
+}
+
+export async function dripYield(): Promise<{ target: Target; amount: bigint; txHash: string }[]> {
+  const now = Math.floor(Date.now() / 1000)
+  const last = await kv.get<number>('drip:last').catch(() => null)
+  if (last && now - last < DRIP_MIN_INTERVAL) return []
+  await kv.set('drip:last', now) // claim before sending so concurrent runs don't double-drip
+  const elapsed = Math.min(last ? now - last : 86400, 7 * 86400)
+
+  const wallet = agentWallet()
+  const coinai = new Contract(coinaiAddress(), COINAI_ABI, wallet)
+  const token = new Contract(process.env.TOKEN_ADDRESS || DEPLOYMENT.token, DRIP_TOKEN_ABI, wallet)
+  const plan = (
+    await Promise.all(
+      TARGETS.map(async (target, i) => {
+        const vault = new Contract((await coinai.vaultOf(i)) as string, VAULT_ABI, wallet)
+        const [tvl, apyBps] = await Promise.all([vault.totalAssets() as Promise<bigint>, vault.apyBps()])
+        return { target, vault: await vault.getAddress(), amount: dripAmount(tvl, Number(apyBps), elapsed, yieldSpeedup()) }
+      }),
+    )
+  ).filter((d) => d.amount > 0n)
+  const total = plan.reduce((sum, d) => sum + d.amount, 0n)
+  if (total === 0n) return []
+
+  if ((await token.balanceOf(wallet.address)) < total) {
+    const lastFaucet = Number(await token.lastFaucetAt(wallet.address))
+    if (now < lastFaucet + 86400) return [] // reserve empty until tomorrow's faucet
+    await (await token.faucet()).wait()
+  }
+
+  const out: { target: Target; amount: bigint; txHash: string }[] = []
+  for (const d of plan) {
+    const tx = await token.transfer(d.vault, d.amount)
+    await tx.wait()
+    out.push({ target: d.target, amount: d.amount, txHash: tx.hash as string })
+  }
+  return out
 }
