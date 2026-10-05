@@ -27,7 +27,7 @@ Each role has its own page in the app at `/app/agent/<role>` (`market`, `savings
 
 ## Pool simulator and Portfolio Reviewer (`/app/market`)
 
-The user builds a hypothetical pool (e.g. 70% BNB, 20% BTC, 10% USDT) from crypto (BNB, BTC, ETH, CAKE, SOL, XRP, DOGE, LINK, AVAX), **tokenized US stocks and ETFs** (27 stocks such as Apple, Microsoft, NVIDIA, Tesla, plus SPY, QQQ and SMH: Binance's 24/7 `…BUSDT` tokens that track the share price; listings under ~2 months old and leveraged ETFs are left out), tokenized gold (PAXG) and stablecoin; list in `web/shared/pool.ts`. The browser backtests it on 90 days of Binance daily closes (daily rebalance: return, annualized volatility, worst drawdown) and shows an 80% range for 3/6/12 months from volatility alone (zero drift, not a forecast). `POST /api/pool` recomputes the stats server-side and asks the **Portfolio Reviewer** (LLM, `risk` model) to judge the pool against the investor profile and the Market Analyst's read: `fits` / `too_risky` / `too_cautious`, a short summary and a suggested mix the user can apply. Nothing is bought; investing in coin pools is a roadmap item (a crypto vault needs a CoinAI v2 deployment). Coin icons: Cryptofonts/cryptoicons (GPL-3.0, `web/public/coins/`); stock logos built from Simple Icons (CC0, `web/public/stocks/`).
+The user builds a hypothetical pool (e.g. 70% BNB, 20% BTC, 10% USDT) from crypto (BNB, BTC, ETH, CAKE, SOL, XRP, DOGE, LINK, AVAX), **tokenized US stocks and ETFs** (27 stocks such as Apple, Microsoft, NVIDIA, Tesla, plus SPY, QQQ and SMH: Binance's 24/7 `…BUSDT` tokens that track the share price; listings under ~2 months old and leveraged ETFs are left out), tokenized gold (PAXG) and stablecoin; list in `web/shared/pool.ts`. The browser backtests it on 90 days of Binance daily closes (daily rebalance: return, annualized volatility, worst drawdown) and shows an 80% range for 3/6/12 months from volatility alone (zero drift, not a forecast). `POST /api/pools?review` recomputes the stats server-side and asks the **Portfolio Reviewer** (LLM, `risk` model) to judge the pool against the investor profile and the Market Analyst's read: `fits` / `too_risky` / `too_cautious`, a short summary and a suggested mix the user can apply. Nothing is bought; investing in coin pools is a roadmap item (a crypto vault needs a CoinAI v2 deployment). Coin icons: Cryptofonts/cryptoicons (GPL-3.0, `web/public/coins/`); stock logos built from Simple Icons (CC0, `web/public/stocks/`).
 
 ## Saved pools as the AI's strategy
 
@@ -93,7 +93,7 @@ Structured roles ask for `response_format: json_object` and the parser tolerates
 | Telegram `/run` | `POST /api/telegram` (1×/min) | Yes |
 | Telegram `/report` | `POST /api/telegram` | No (report only) |
 
-Payments also trigger **autopilot** (`POST /api/agent/nudge`), including deposits from the user's own wallet (tUSDT, or tBNB through the DepositRouter).
+Payments also trigger **autopilot** (`POST /api/agent/autopilot`, `action: "nudge"`), including deposits from the user's own wallet (tUSDT, or tBNB through the DepositRouter).
 
 If the user hasn't enabled the agent (or it expired), the run is **report-only**: no proposals, just the report and reminders.
 
@@ -121,7 +121,7 @@ Gmail's personal sending limit (~500/day) is plenty for the demo. For production
 ## Persistence
 
 - **Chat**: one conversation per wallet in Redis (`chat:<address>`, last 40 turns, 7 days), shared by the web chat (`/app/chat`) and Telegram. The user's message is stored before the model answers and a `chat:pending:<address>` flag is set, so closing the page mid-answer loses nothing: on return the page shows "thinking" and polls until the reply lands.
-- **Agent runs**: `runSwarm` sets `running:<address>` (5 min TTL) for the duration of a run; `/api/agent/history` returns it, and the Agent page shows "still running" and polls until the result appears. The last 20 runs stay in `runs:<address>`.
+- **Agent runs**: `runSwarm` sets `running:<address>` (5 min TTL) for the duration of a run; `GET /api/agent/run` returns it, and the Agent page shows "still running" and polls until the result appears. The last 20 runs stay in `runs:<address>`.
 - **Decisions**: `AgentAction` events on-chain, read by the decision log.
 
 ## Chat on Telegram

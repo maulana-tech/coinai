@@ -110,10 +110,10 @@ const post = (path: string, payload: object) =>
 
 export const autopilot = {
   /** Fire-and-forget after a payment: lets the recipient's agents invest the new savings right away. */
-  nudge: (recipient: string) => void post('/api/agent/nudge', { user: recipient }).catch(() => {}),
+  nudge: (recipient: string) => void post('/api/agent/autopilot', { user: recipient, action: 'nudge' }).catch(() => {}),
   /** Enrolls a wallet that authorized the agent in the daily run; resolves to whether autopilot is on. */
   register: async (address: string): Promise<boolean> => {
-    const res = await post('/api/agent/register', { user: address }).catch(() => null)
+    const res = await post('/api/agent/autopilot', { user: address, action: 'register' }).catch(() => null)
     const body = res?.ok ? await res.json().catch(() => null) : null
     return body?.autopilot === true
   },
@@ -122,7 +122,7 @@ export const autopilot = {
 export const agentApi = {
   run: (address: string, locale: string) =>
     call<AgentRun>(address, '/api/agent/run', { method: 'POST', body: JSON.stringify({ locale }) }),
-  history: (address: string) => call<{ runs: AgentRun[]; running: boolean }>(address, '/api/agent/history'),
+  history: (address: string) => call<{ runs: AgentRun[]; running: boolean }>(address, '/api/agent/run'),
   // One conversation per wallet, stored server-side and shared with Telegram.
   chatHistory: (address: string) => call<{ messages: ChatMessage[]; pending: boolean }>(address, '/api/agent/chat'),
   chat: (address: string, message: string, locale: string) =>
@@ -155,7 +155,7 @@ export const agentApi = {
     call<PoolStore>(address, '/api/pools', { method: 'DELETE', body: JSON.stringify({ id }) }),
   // Market page: the Portfolio Reviewer judges a simulated pool ({ BNB: 70, BTC: 20, USDT: 10 }).
   poolReview: (address: string, weights: Record<string, number>, locale: string) =>
-    call<{ review: PoolReview }>(address, '/api/pool', { method: 'POST', body: JSON.stringify({ weights, locale }) }),
+    call<{ review: PoolReview }>(address, '/api/pools?review', { method: 'POST', body: JSON.stringify({ weights, locale }) }),
   // Bring-your-own OpenRouter keys; the server only ever returns the last 4 characters.
   llmKeys: (address: string) => call<{ keys: LlmKey[] }>(address, '/api/agent/keys'),
   addLlmKey: (address: string, key: string) =>

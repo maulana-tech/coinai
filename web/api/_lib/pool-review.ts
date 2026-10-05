@@ -1,20 +1,18 @@
-import { fetchHistory } from '../shared/market.js'
-import { backtest, normalizeWeights, POOL_ASSETS, type History, type Weights } from '../shared/pool.js'
-import { bearer, body, json } from './_lib/http.js'
-import { kv } from './_lib/kv.js'
-import { askJson, withUserKeys } from './_lib/llm.js'
-import { asLocale, getMarketAnalysis, getProfile } from './_lib/swarm.js'
+import { fetchHistory } from '../../shared/market.js'
+import { backtest, normalizeWeights, POOL_ASSETS, type History, type Weights } from '../../shared/pool.js'
+import { body, json } from './http.js'
+import { kv } from './kv.js'
+import { askJson, withUserKeys } from './llm.js'
+import { asLocale, getMarketAnalysis, getProfile } from './swarm.js'
 
 const LANGUAGE = { en: 'English', id: 'Bahasa Indonesia', zh: 'Simplified Chinese' } as const
 
 type Review = { verdict: 'fits' | 'too_risky' | 'too_cautious'; summary: string; suggestion: Weights; reason: string }
 
-// POST { weights: { BNB: 70, BTC: 20, USDT: 10 }, locale } with Authorization: Bearer <token>
+// POST /api/pools?review { weights: { BNB: 70, BTC: 20, USDT: 10 }, locale } (signed in)
 // → { review }: the Portfolio Reviewer judges a simulated pool against the investor profile and market.
 // Stats are recomputed here from Binance candles; the client's numbers aren't trusted.
-export async function POST(req: Request) {
-  const user = bearer(req)
-  if (!user) return json({ error: 'unauthorized' }, 401)
+export async function reviewPool(req: Request, user: string): Promise<Response> {
   if ((await kv.hit(`rl:pool:${user}`, 3600)) > 20) return json({ error: 'rate_limited' }, 429)
 
   const input = await body<{ weights: Weights; locale: string }>(req)

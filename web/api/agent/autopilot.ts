@@ -9,11 +9,12 @@ import { runSwarm } from '../_lib/swarm.js'
 const MIN_IDLE = 1_000_000n // 1 tUSDT
 const FRESH_PAYMENT = 600 // seconds
 
-// POST { user } — autopilot: the payment page calls this after a successful payment so the
-// recipient's agent team invests the new savings right away. No auth needed: it only ever acts
-// within the recipient's own on-chain permission, and cheap chain checks gate every LLM call.
+// Autopilot, public (no signature): both actions only ever act within the wallet's own on-chain
+// agent permission, and cheap chain checks gate every LLM call.
+// POST { user, action: 'register' } → { autopilot }: enroll a wallet that authorized our agent in the daily run.
+// POST { user, action: 'nudge' } → { ran }: after a payment, let the recipient's agents invest the new savings now.
 export async function POST(req: Request) {
-  const { user: raw } = await body<{ user: string }>(req)
+  const { user: raw, action } = await body<{ user: string; action: 'nudge' | 'register' }>(req)
   let user: string
   try {
     user = getAddress(String(raw))
@@ -22,6 +23,10 @@ export async function POST(req: Request) {
   }
 
   const s = await readUserState(user)
+  if (action === 'register') {
+    if (policyActive(s)) await kv.sadd('users', user)
+    return json({ autopilot: policyActive(s) })
+  }
   if (!policyActive(s)) return json({ ran: false, reason: 'agent_not_enabled' })
   if (s.savings < MIN_IDLE) return json({ ran: false, reason: 'no_idle_savings' })
   if (!s.lastPaymentAt || s.now - s.lastPaymentAt > FRESH_PAYMENT) return json({ ran: false, reason: 'no_recent_payment' })

@@ -222,13 +222,18 @@ End-to-end flow in the app:
 |---|---|---|---|
 | POST | `/api/auth` | wallet signature | `{address, issuedAt, signature}` → `{token}` |
 | POST | `/api/agent/run` | Bearer | Run the agent team now (1×/minute) |
+| GET | `/api/agent/run` | Bearer | The last 20 runs + whether one is running |
 | POST | `/api/agent/chat` | Bearer | Chat Advisor (30 messages / 10 minutes) |
-| GET | `/api/agent/history` | Bearer | The last 20 runs |
+| GET/POST/DELETE | `/api/agent/keys` | Bearer | BYOK OpenRouter keys (masked) |
+| POST | `/api/agent/autopilot` | — (checked on-chain) | `{user, action: "nudge"}` after a payment, `{user, action: "register"}` to join the daily run |
+| GET/POST/PUT/DELETE | `/api/pools` | Bearer | Saved pools; `PUT {activeId}` sets the AI benchmark; `POST ?review` = AI review of a pool |
 | GET/POST/DELETE | `/api/subscribe` | Bearer | Manage Telegram / Gmail notifications |
 | POST | `/api/telegram` | webhook secret | Telegram bot: chat + `/market /run /report /reset /stop` |
 | GET | `/api/market` | — | Market snapshot (Chainlink + Binance) + Market Analyst read |
 | GET/POST | `/api/agent/profile` | Bearer | Investor profile |
 | GET | `/api/cron/daily` | `CRON_SECRET` | Daily report + reminders |
+
+That's 11 functions; the Vercel **Hobby plan allows at most 12 per deployment**, so related routes share one file (methods / query flags) instead of adding new files.
 
 ## Troubleshooting
 

@@ -1,4 +1,5 @@
 import { bearer, body, json } from './_lib/http.js'
+import { reviewPool } from './_lib/pool-review.js'
 import { deletePool, loadPools, savePool, setActivePool } from './_lib/pools.js'
 
 // Saved pools (Market page). All calls need Authorization: Bearer <token>.
@@ -10,9 +11,12 @@ export async function GET(req: Request) {
 }
 
 // POST { id?, name, weights } → create or update → { pools, activeId }
+// POST ?review { weights, locale } → { review } (AI review of an unsaved pool; one function to stay
+// under the Hobby plan's 12-function limit)
 export async function POST(req: Request) {
   const user = bearer(req)
   if (!user) return json({ error: 'unauthorized' }, 401)
+  if (new URL(req.url).searchParams.has('review')) return reviewPool(req, user)
   try {
     return json(await savePool(user, await body(req)))
   } catch (e) {
