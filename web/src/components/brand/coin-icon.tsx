@@ -8,10 +8,11 @@ export function CoinIcon({ symbol, size = 32, className }: { symbol: string; siz
   if (missing)
     return (
       <span
-        className={cn('flex shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold', className)}
-        style={{ width: size, height: size }}
+        className={cn('flex shrink-0 items-center justify-center rounded-full bg-foreground font-semibold text-background', className)}
+        style={{ width: size, height: size, fontSize: Math.max(7, size * (size < 24 ? 0.55 : 0.3)) }}
+        aria-hidden="true"
       >
-        {symbol}
+        {size < 24 ? symbol[0] : symbol.slice(0, 4)}
       </span>
     )
   return (
