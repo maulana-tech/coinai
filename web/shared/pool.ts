@@ -1,15 +1,30 @@
 // Pool simulator for the Market page: backtest a user-picked allocation on daily closes and give a
 // volatility-based range for the future. Pure math, shared by the app and the AI reviewer.
 
+// Tokenized stocks trade 24/7 on Binance (e.g. AAPLBUSDT tracks Apple), so they line up day by day
+// with crypto; PAXG is tokenized gold. Some listings are younger than 90 days: the backtest window
+// shrinks to the shortest history in the pool.
+export type AssetCategory = 'crypto' | 'stock' | 'gold' | 'stable'
+
 export const POOL_ASSETS = [
-  { symbol: 'BNB', name: 'BNB', pair: 'BNBUSDT' },
-  { symbol: 'BTC', name: 'Bitcoin', pair: 'BTCUSDT' },
-  { symbol: 'ETH', name: 'Ethereum', pair: 'ETHUSDT' },
-  { symbol: 'CAKE', name: 'PancakeSwap', pair: 'CAKEUSDT' },
-  { symbol: 'SOL', name: 'Solana', pair: 'SOLUSDT' },
-  { symbol: 'XRP', name: 'XRP', pair: 'XRPUSDT' },
-  { symbol: 'USDT', name: 'Stablecoin', pair: null },
-] as const
+  { symbol: 'BNB', name: 'BNB', pair: 'BNBUSDT', category: 'crypto' },
+  { symbol: 'BTC', name: 'Bitcoin', pair: 'BTCUSDT', category: 'crypto' },
+  { symbol: 'ETH', name: 'Ethereum', pair: 'ETHUSDT', category: 'crypto' },
+  { symbol: 'CAKE', name: 'PancakeSwap', pair: 'CAKEUSDT', category: 'crypto' },
+  { symbol: 'SOL', name: 'Solana', pair: 'SOLUSDT', category: 'crypto' },
+  { symbol: 'XRP', name: 'XRP', pair: 'XRPUSDT', category: 'crypto' },
+  { symbol: 'DOGE', name: 'Dogecoin', pair: 'DOGEUSDT', category: 'crypto' },
+  { symbol: 'LINK', name: 'Chainlink', pair: 'LINKUSDT', category: 'crypto' },
+  { symbol: 'AVAX', name: 'Avalanche', pair: 'AVAXUSDT', category: 'crypto' },
+  { symbol: 'AAPL', name: 'Apple', pair: 'AAPLBUSDT', category: 'stock' },
+  { symbol: 'TSLA', name: 'Tesla', pair: 'TSLABUSDT', category: 'stock' },
+  { symbol: 'NVDA', name: 'NVIDIA', pair: 'NVDABUSDT', category: 'stock' },
+  { symbol: 'SPY', name: 'S&P 500 ETF', pair: 'SPYBUSDT', category: 'stock' },
+  { symbol: 'COIN', name: 'Coinbase', pair: 'COINBUSDT', category: 'stock' },
+  { symbol: 'MSTR', name: 'Strategy', pair: 'MSTRBUSDT', category: 'stock' },
+  { symbol: 'PAXG', name: 'PAX Gold', pair: 'PAXGUSDT', category: 'gold' },
+  { symbol: 'USDT', name: 'Stablecoin', pair: null, category: 'stable' },
+] as const satisfies readonly { symbol: string; name: string; pair: string | null; category: AssetCategory }[]
 
 export type PoolSymbol = (typeof POOL_ASSETS)[number]['symbol']
 export type Weights = Partial<Record<PoolSymbol, number>> // percent, sums to 100
