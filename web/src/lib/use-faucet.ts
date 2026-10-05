@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { errorKey } from '@/lib/errors'
+import { useT } from '@/lib/i18n'
 import { getNativeBalance } from '@/lib/balances'
 import { faucetAvailableAt, getTokenBalance, mintTestTokens, TOKEN_SCALE } from '@/lib/token'
 import { TBNB_FAUCET_URL, TOKEN_ADDRESS } from '@/lib/config'
@@ -49,6 +52,7 @@ export function useFaucet(): {
   refreshBalances: () => Promise<void>
 } {
   const { address } = useWallet()
+  const t = useT()
   const [balances, setBalances] = useState<FaucetBalance | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [mintBusy, setMintBusy] = useState(false)
@@ -85,21 +89,20 @@ export function useFaucet(): {
     window.open(TBNB_FAUCET_URL, '_blank', 'noopener,noreferrer')
   }, [])
 
-  // Returns the tx hash, or null after surfacing the error in `error`.
+  // Returns the tx hash, or null after a toast. `error` stays for balance loading only.
   const mintTokens = useCallback(async () => {
     setMintBusy(true)
-    setError(null)
     try {
       const hash = await mintTestTokens()
       await refreshBalances()
       return hash
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      toast.error(t(errorKey(e)))
       return null
     } finally {
       setMintBusy(false)
     }
-  }, [refreshBalances])
+  }, [refreshBalances, t])
 
   const hasFunds = balances
     ? balances.bnb >= MIN_BNB && balances.usdt >= MIN_TOKEN
