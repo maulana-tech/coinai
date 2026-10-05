@@ -1,10 +1,11 @@
 // Pool simulator for the Market page: backtest a user-picked allocation on daily closes and give a
 // volatility-based range for the future. Pure math, shared by the app and the AI reviewer.
 
-// Tokenized stocks trade 24/7 on Binance (e.g. AAPLBUSDT tracks Apple), so they line up day by day
+// Tokenized stocks and ETFs trade 24/7 on Binance (e.g. AAPLBUSDT tracks Apple; listings with
+// under ~2 months of history and leveraged ETFs are left out), so they line up day by day
 // with crypto; PAXG is tokenized gold. Some listings are younger than 90 days: the backtest window
 // shrinks to the shortest history in the pool.
-export type AssetCategory = 'crypto' | 'stock' | 'gold' | 'stable'
+export type AssetCategory = 'crypto' | 'stock' | 'etf' | 'gold' | 'stable'
 
 export const POOL_ASSETS = [
   { symbol: 'BNB', name: 'BNB', pair: 'BNBUSDT', category: 'crypto' },
@@ -16,12 +17,36 @@ export const POOL_ASSETS = [
   { symbol: 'DOGE', name: 'Dogecoin', pair: 'DOGEUSDT', category: 'crypto' },
   { symbol: 'LINK', name: 'Chainlink', pair: 'LINKUSDT', category: 'crypto' },
   { symbol: 'AVAX', name: 'Avalanche', pair: 'AVAXUSDT', category: 'crypto' },
+  { symbol: 'SPY', name: 'S&P 500 ETF', pair: 'SPYBUSDT', category: 'etf' },
+  { symbol: 'QQQ', name: 'Nasdaq-100 ETF', pair: 'QQQBUSDT', category: 'etf' },
+  { symbol: 'SMH', name: 'Semiconductor ETF', pair: 'SMHBUSDT', category: 'etf' },
   { symbol: 'AAPL', name: 'Apple', pair: 'AAPLBUSDT', category: 'stock' },
-  { symbol: 'TSLA', name: 'Tesla', pair: 'TSLABUSDT', category: 'stock' },
+  { symbol: 'MSFT', name: 'Microsoft', pair: 'MSFTBUSDT', category: 'stock' },
+  { symbol: 'GOOGL', name: 'Alphabet', pair: 'GOOGLBUSDT', category: 'stock' },
+  { symbol: 'AMZN', name: 'Amazon', pair: 'AMZNBUSDT', category: 'stock' },
+  { symbol: 'META', name: 'Meta', pair: 'METABUSDT', category: 'stock' },
   { symbol: 'NVDA', name: 'NVIDIA', pair: 'NVDABUSDT', category: 'stock' },
-  { symbol: 'SPY', name: 'S&P 500 ETF', pair: 'SPYBUSDT', category: 'stock' },
+  { symbol: 'TSLA', name: 'Tesla', pair: 'TSLABUSDT', category: 'stock' },
+  { symbol: 'NFLX', name: 'Netflix', pair: 'NFLXBUSDT', category: 'stock' },
+  { symbol: 'AMD', name: 'AMD', pair: 'AMDBUSDT', category: 'stock' },
+  { symbol: 'AVGO', name: 'Broadcom', pair: 'AVGOBUSDT', category: 'stock' },
+  { symbol: 'TSM', name: 'TSMC', pair: 'TSMBUSDT', category: 'stock' },
+  { symbol: 'INTC', name: 'Intel', pair: 'INTCBUSDT', category: 'stock' },
+  { symbol: 'ASML', name: 'ASML', pair: 'ASMLBUSDT', category: 'stock' },
+  { symbol: 'ARM', name: 'Arm', pair: 'ARMBUSDT', category: 'stock' },
+  { symbol: 'QCOM', name: 'Qualcomm', pair: 'QCOMBUSDT', category: 'stock' },
+  { symbol: 'MU', name: 'Micron', pair: 'MUBUSDT', category: 'stock' },
+  { symbol: 'ORCL', name: 'Oracle', pair: 'ORCLBUSDT', category: 'stock' },
+  { symbol: 'IBM', name: 'IBM', pair: 'IBMBUSDT', category: 'stock' },
+  { symbol: 'DELL', name: 'Dell', pair: 'DELLBUSDT', category: 'stock' },
+  { symbol: 'SMCI', name: 'Supermicro', pair: 'SMCIBUSDT', category: 'stock' },
+  { symbol: 'PLTR', name: 'Palantir', pair: 'PLTRBUSDT', category: 'stock' },
+  { symbol: 'PYPL', name: 'PayPal', pair: 'PYPLBUSDT', category: 'stock' },
+  { symbol: 'HOOD', name: 'Robinhood', pair: 'HOODBUSDT', category: 'stock' },
   { symbol: 'COIN', name: 'Coinbase', pair: 'COINBUSDT', category: 'stock' },
   { symbol: 'MSTR', name: 'Strategy', pair: 'MSTRBUSDT', category: 'stock' },
+  { symbol: 'BABA', name: 'Alibaba', pair: 'BABABUSDT', category: 'stock' },
+  { symbol: 'GME', name: 'GameStop', pair: 'GMEBUSDT', category: 'stock' },
   { symbol: 'PAXG', name: 'PAX Gold', pair: 'PAXGUSDT', category: 'gold' },
   { symbol: 'USDT', name: 'Stablecoin', pair: null, category: 'stable' },
 ] as const satisfies readonly { symbol: string; name: string; pair: string | null; category: AssetCategory }[]
