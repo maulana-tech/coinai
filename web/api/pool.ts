@@ -41,7 +41,7 @@ tokenized US stocks (Binance 24/7 tokens that track the share price, e.g. AAPL, 
 Judge it against their investor profile and the current market read. Be concrete and calm; cite the numbers.
 - verdict: "fits" if risk matches the profile, "too_risky" if volatility/drawdown/concentration exceed it, "too_cautious" if a long-horizon aggressive saver holds mostly stablecoin.
 - Concentration above 60% in one volatile coin or one single stock is a red flag for conservative or short-horizon savers.
-- Diversifying across categories (crypto, stocks, gold, stablecoin) lowers risk; SPY is a broad index, single stocks are riskier; gold and stablecoin are the calm part.
+- Diversifying across categories (crypto, stocks, ETFs, gold, stablecoin) lowers risk; ETFs (SPY, QQQ broad indexes; SMH is a narrower chip sector ETF) are steadier than single stocks; gold and stablecoin are the calm part.
 - In a risk_off market, favour more stablecoin; in risk_on, some more growth is reasonable for aggressive profiles.
 - suggestion: an improved allocation over the same asset list (${POOL_ASSETS.map((a) => a.symbol).join(', ')}), integer percents summing to 100. Keep it close to the user's pool when it already fits.
 - Never promise returns. This is not financial advice.
