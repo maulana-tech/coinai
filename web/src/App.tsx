@@ -14,6 +14,7 @@ import { AgentPage } from '@/pages/agent'
 import { AgentRolePage } from '@/pages/agent-role'
 import { ChatPage } from '@/pages/chat'
 import { PortfolioPage } from '@/pages/portfolio'
+import { MarketPage } from '@/pages/market'
 import { Dashboard } from '@/pages/dashboard'
 import { FaucetPage } from '@/pages/faucet'
 import { Landing } from '@/pages/landing'
@@ -69,6 +70,7 @@ export function App() {
                       <Route path="agent/:role" element={<AgentRolePage />} />
                       <Route path="chat" element={<ChatPage />} />
                       <Route path="portfolio" element={<PortfolioPage />} />
+                      <Route path="market" element={<MarketPage />} />
                       <Route path="withdraw" element={<WithdrawPage />} />
                       <Route path="rules" element={<RulesPage />} />
                       <Route path="link" element={<PaymentLinkPage />} />
