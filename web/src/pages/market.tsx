@@ -47,18 +47,68 @@ const VERDICT: Record<PoolReview['verdict'], { label: MessageKey; className: str
   too_cautious: { label: 'market.verdictCautious', className: 'bg-gold/15 text-gold-ink' },
 }
 
-function Chart({ values }: { values: number[] }) {
+// Backtest chart with a hover/touch tooltip: date, pool value for the simulated amount, change.
+// The last point is today's daily close, so point i is (n-1-i) days ago.
+function Chart({ values, amount, locale }: { values: number[]; amount: number; locale: string }) {
+  const [hover, setHover] = useState<number | null>(null)
   if (values.length < 2) return null
+  const n = values.length
   const min = Math.min(...values, 1)
   const span = Math.max(...values, 1) - min || 1
   const y = (v: number) => 38 - ((v - min) / span) * 36
-  const points = values.map((v, i) => `${(i / (values.length - 1)) * 100},${y(v)}`).join(' ')
-  const up = values[values.length - 1] >= 1
+  const x = (i: number) => (i / (n - 1)) * 100
+  const points = values.map((v, i) => `${x(i)},${y(v)}`).join(' ')
+  const up = values[n - 1] >= 1
+
+  const pick = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setHover(Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (n - 1)))
+  }
+  const fmt = new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: 2 })
+  const tip =
+    hover === null
+      ? null
+      : {
+          date: new Intl.DateTimeFormat(intlLocale(locale), { day: 'numeric', month: 'short' }).format(Date.now() - (n - 1 - hover) * 86_400_000),
+          value: `${fmt.format(amount * values[hover])} tUSDT`,
+          change: (values[hover] - 1) * 100,
+        }
+
   return (
-    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="h-32 w-full" aria-hidden="true">
-      <line x1="0" y1={y(1)} x2="100" y2={y(1)} strokeDasharray="3 3" strokeWidth="1" vectorEffect="non-scaling-stroke" className="stroke-muted-foreground/40" />
-      <polyline points={points} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" className={up ? 'stroke-primary' : 'stroke-destructive'} />
-    </svg>
+    <div
+      className="relative touch-none select-none"
+      onPointerMove={pick}
+      onPointerDown={pick}
+      onPointerLeave={() => setHover(null)}
+    >
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="h-32 w-full" aria-hidden="true">
+        <line x1="0" y1={y(1)} x2="100" y2={y(1)} strokeDasharray="3 3" strokeWidth="1" vectorEffect="non-scaling-stroke" className="stroke-muted-foreground/40" />
+        <polyline points={points} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" className={up ? 'stroke-primary' : 'stroke-destructive'} />
+        {hover !== null && (
+          <line x1={x(hover)} y1="0" x2={x(hover)} y2="40" strokeWidth="1" vectorEffect="non-scaling-stroke" className="stroke-foreground/30" />
+        )}
+      </svg>
+      {hover !== null && tip && (
+        <>
+          <span
+            className={cn('pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-card', up ? 'bg-primary' : 'bg-destructive')}
+            style={{ left: `${x(hover)}%`, top: `${(y(values[hover]) / 40) * 100}%` }}
+          />
+          <div
+            className="pointer-events-none absolute top-0 z-10 rounded-lg border bg-card px-2.5 py-1.5 text-xs whitespace-nowrap shadow-md"
+            // beside the guide line, flipping to the left near the right edge
+            style={{ left: `${x(hover)}%`, transform: x(hover) > 60 ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)' }}
+          >
+            <p className="text-muted-foreground">{tip.date}</p>
+            <p className="font-semibold tabular-nums">{tip.value}</p>
+            <p className={cn('tabular-nums', tip.change >= 0 ? 'text-primary-ink' : 'text-destructive')}>
+              {tip.change >= 0 ? '+' : ''}
+              {fmt.format(tip.change)}%
+            </p>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -246,7 +296,7 @@ export function MarketPage() {
               <>
                 <div>
                   <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('market.backtestLabel', { days: stats.days })}</p>
-                  <Chart values={stats.values} />
+                  <Chart values={stats.values} amount={money} locale={locale} />
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <Stat label={t('market.return')} value={pct(stats.totalReturn)} tone={stats.totalReturn >= 0 ? 'up' : 'down'} />
