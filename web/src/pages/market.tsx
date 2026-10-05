@@ -29,16 +29,18 @@ const PRESETS: { label: MessageKey; weights: Weights }[] = [
 // Builder tabs; gold and stablecoin share the "safer" tab.
 const TABS: { key: 'crypto' | 'stock' | 'safe'; label: MessageKey; categories: AssetCategory[] }[] = [
   { key: 'crypto', label: 'market.tabCrypto', categories: ['crypto'] },
-  { key: 'stock', label: 'market.tabStocks', categories: ['stock'] },
+  { key: 'stock', label: 'market.tabStocks', categories: ['etf', 'stock'] },
   { key: 'safe', label: 'market.tabSafe', categories: ['gold', 'stable'] },
 ]
 const CATEGORY_COLOR: Record<AssetCategory, string> = {
   crypto: 'bg-primary',
   stock: 'bg-gold',
+  etf: 'bg-gold/60',
   gold: 'bg-gold-ink',
   stable: 'bg-muted-foreground/40',
 }
 const categoryOf = (s: string) => POOL_ASSETS.find((a) => a.symbol === s)?.category ?? 'stable'
+const iconKind = (s: string) => (['stock', 'etf'].includes(categoryOf(s)) ? 'stock' : 'coin')
 const VERDICT: Record<PoolReview['verdict'], { label: MessageKey; className: string }> = {
   fits: { label: 'market.verdictFits', className: 'bg-primary/15 text-primary-ink' },
   too_risky: { label: 'market.verdictRisky', className: 'bg-destructive/15 text-destructive' },
@@ -77,6 +79,7 @@ export function MarketPage() {
   const [weights, setWeights] = useState<Weights>(PRESETS[0].weights)
   const [amount, setAmount] = useState('100')
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('crypto')
+  const [query, setQuery] = useState('')
   const [history, setHistory] = useState<History | null>(null)
   const [historyError, setHistoryError] = useState(false)
   const [review, setReview] = useState<PoolReview | null>(null)
@@ -105,7 +108,12 @@ export function MarketPage() {
     return c && c.length > 1 ? (c[c.length - 1] / c[0] - 1) * 100 : null
   }
   const held = Object.entries(clean) as [PoolSymbol, number][]
-  const tabAssets = POOL_ASSETS.filter((a) => TABS.find((x) => x.key === tab)!.categories.includes(a.category))
+  const q = query.trim().toLowerCase()
+  const tabAssets = POOL_ASSETS.filter(
+    (a) =>
+      TABS.find((x) => x.key === tab)!.categories.includes(a.category) &&
+      (!q || a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)),
+  )
 
   const setWeight = (s: PoolSymbol, v: number) => {
     setWeights((w) => ({ ...w, [s]: Math.max(0, Math.min(100, Math.round(v))) }))
@@ -152,14 +160,14 @@ export function MarketPage() {
               <div className="flex flex-wrap gap-1.5">
                 {held.map(([sym, w]) => (
                   <span key={sym} className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs tabular-nums">
-                    <CoinIcon symbol={sym} size={14} />
+                    <CoinIcon symbol={sym} size={14} kind={iconKind(sym)} />
                     {sym} {w}%
                   </span>
                 ))}
               </div>
             </div>
 
-            <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+            <Tabs value={tab} onValueChange={(v) => { setTab(v as typeof tab); setQuery('') }}>
               <TabsList className="rounded-full">
                 {TABS.map((x) => (
                   <TabsTrigger key={x.key} value={x.key} className="rounded-full px-4">
@@ -169,15 +177,21 @@ export function MarketPage() {
               </TabsList>
             </Tabs>
 
-            <div className="space-y-3">
+            {tab === 'stock' && (
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('market.searchStocks')} aria-label={t('market.searchStocks')} />
+            )}
+            <div className={cn('space-y-3', tab === 'stock' && 'max-h-[26rem] overflow-y-auto pr-1')}>
               {tabAssets.map((a) => {
                 const c90 = change90(a.symbol)
                 return (
-                  <div key={a.symbol} className="grid grid-cols-[8rem_1fr_4.5rem] items-center gap-3">
+                  <div key={a.symbol} className="grid grid-cols-[9.5rem_1fr_4.5rem] items-center gap-3">
                     <span className="flex items-center gap-2.5 text-sm">
-                      <CoinIcon symbol={a.symbol} size={28} />
+                      <CoinIcon symbol={a.symbol} size={28} kind={iconKind(a.symbol)} />
                       <span className="min-w-0">
-                        <span className="block font-medium">{a.symbol}</span>
+                        <span className="flex items-center gap-1 font-medium">
+                          {a.symbol}
+                          {a.category === 'etf' && <span className="rounded bg-muted px-1 text-[9px] font-semibold text-muted-foreground">ETF</span>}
+                        </span>
                         <span className="block truncate text-[11px] text-muted-foreground">
                           {a.symbol === 'USDT' ? t('market.stable') : a.name}
                           {c90 !== null && (
@@ -282,7 +296,7 @@ export function MarketPage() {
                   {Object.entries(review.suggestion).map(([s, v]) => (
                     <div key={s} className="grid grid-cols-[4.5rem_1fr_2.5rem] items-center gap-2 text-sm">
                       <span className="flex items-center gap-1.5 font-medium">
-                        <CoinIcon symbol={s} size={18} />
+                        <CoinIcon symbol={s} size={18} kind={iconKind(s)} />
                         {s}
                       </span>
                       <div className="h-2 overflow-hidden rounded-full bg-muted">
