@@ -68,11 +68,15 @@ Design choices:
 
 ### SimpleVault (`SimpleVault.sol`)
 
-Minimal ERC-4626 vault, deployed three times with `apyBps` / `riskLevel` metadata. Share price tracks the vault's token balance. On testnet the APY is display metadata only; on mainnet these slots would route into live strategies (Venus, Lista, PancakeSwap).
+Minimal ERC-4626 vault, deployed three times with `apyBps` / `riskLevel` metadata. Share price tracks the vault's token balance. On testnet the APY is metadata, so the backend runs a **yield simulator** (`dripYield` in `web/api/_lib/chain.ts`): the agent wallet tops each vault up with tUSDT in proportion to its APY and the time since the last drip (sped up `YIELD_SPEEDUP`×, default 30), on every agent run and the daily cron. Share price, and every depositor's position, really grows on-chain. On mainnet these slots would route into live strategies (Venus, Lista, PancakeSwap).
 
 ### MockUSDT (`MockUSDT.sol`)
 
 6-decimal ERC-20 with a public `faucet()` (1,000 tUSDT per address per 24h).
+
+### DepositRouter (`DepositRouter.sol`)
+
+Testnet on-ramp for tBNB: `depositBNB(minOut)` prices the tBNB with Chainlink BNB/USD, pays the tUSDT value from its reserve into the sender's coinAI account (`CoinAI.pay(router, user, amount)`, so the split and autopilot apply) and forwards the tBNB to the agent wallet for gas. `refill()` tops the reserve up from the faucet. On mainnet this becomes a PancakeSwap swap. tUSDT already in a wallet is deposited with a plain `pay(user, user, amount)`; both live in the "Deposit into coinAI" card on `/app/faucet`.
 
 ## Agent team (`web/api`)
 
