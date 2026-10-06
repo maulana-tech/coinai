@@ -1,9 +1,23 @@
 {
   "functions": {
-    "api/**/*.ts": { "maxDuration": 300 }
+    "api/**/*.ts": {
+      "maxDuration": 300
+    }
   },
-  "crons": [{ "path": "/api/cron/daily", "schedule": "0 1 * * *" }],
+  "crons": [
+    {
+      "path": "/api/cron/daily",
+      "schedule": "0 1 * * *"
+    }
+  ],
   "rewrites": [
-    { "source": "/((?!api/|assets/|logos/|favicon.ico).*)", "destination": "/index.html" }
+    {
+      "source": "/g/:id",
+      "destination": "/api/invoices?og=:id"
+    },
+    {
+      "source": "/((?!api/|assets/|logos/|favicon.ico).*)",
+      "destination": "/index.html"
+    }
   ]
 }
