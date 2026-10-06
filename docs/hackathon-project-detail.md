@@ -123,10 +123,12 @@ The orchestrator (`web/api/_lib/swarm.ts`) is **plain TypeScript** — the seque
 | Vault Conservative (cvUSDT) | `0x1b013Af5755CB96d9314A5074391931EBCd40ACa` | 3% APR, risk-off |
 | Vault Balanced (bvUSDT) | `0x4071DdCe831E484640e864a8627cc3ece308e895` | 6% APR, neutral |
 | Vault Growth (gvUSDT) | `0xf9B035426d2A16EF00F0547dc0F4Ed9226D2671d` | 12% APR, risk-on |
+| DepositRouter | `0x2e72901f3350b7f3f5E4E35918a6e4b4dC5bf104` | tBNB → tUSDT on-ramp, Chainlink BNB/USD priced |
 
 - Explorer: https://testnet.bscscan.com/address/0xdA174816F66E30eBB3a002bcf5a71AD00037eBD9
-- Deploy block: `133234241`
-- Deployer / agent wallet: `0x72092971935F31734118fD869A768aE17C84dd0B`
+- Deploy block: `133234240` (MockUSDT; the vaults and CoinAI landed in `133234241`). Activity history is read from `133234240`.
+- Agent wallet (sends `agentSetSplit` / `agentInvest`, receives DepositRouter tBNB for gas): `0x03c8faF61c40F35CCFFd8fDcCa7F037C2dB2f6C6`
+- Deployer: `0x72092971935F31734118fD869A768aE17C84dd0B`
 
 ---
 
