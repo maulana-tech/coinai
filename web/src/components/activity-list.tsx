@@ -38,6 +38,7 @@ const ICONS: Record<ActivityItem['kind'], typeof LockIcon> = {
   run: UsersIcon,
   wd_spend: ArrowUpRightIcon,
   wd_save: ArrowUpRightIcon,
+  wd_vault: ArrowUpRightIcon,
   invest: TrendingUpIcon,
   split: SlidersHorizontalIcon,
   lock: LockIcon,
@@ -57,6 +58,7 @@ const KIND_TINT: Record<ActivityItem['kind'], { bg: string; fg: string }> = {
   run: { bg: 'bg-gold/15', fg: 'text-gold-ink' },
   wd_spend: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   wd_save: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
+  wd_vault: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   invest: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   split: { bg: 'bg-accent', fg: 'text-accent-foreground' },
   lock: { bg: 'bg-accent', fg: 'text-accent-foreground' },
@@ -75,6 +77,7 @@ const KIND_TINT_SOLID: Record<ActivityItem['kind'], { bg: string; fg: string }> 
   run: { bg: 'bg-gold', fg: 'text-primary-foreground' },
   wd_spend: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   wd_save: { bg: 'bg-primary', fg: 'text-primary-foreground' },
+  wd_vault: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   invest: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   split: { bg: 'bg-accent', fg: 'text-accent-foreground' },
   lock: { bg: 'bg-accent', fg: 'text-accent-foreground' },
@@ -92,7 +95,7 @@ type ActivityListProps = {
   loading: boolean
 }
 
-const TOKEN_KINDS: readonly ActivityItem['kind'][] = ['pay', 'paid', 'faucet', 'wd_spend', 'wd_save', 'invest']
+const TOKEN_KINDS: readonly ActivityItem['kind'][] = ['pay', 'paid', 'faucet', 'wd_spend', 'wd_save', 'wd_vault', 'invest']
 
 const short = (a: string | undefined) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '')
 
@@ -148,6 +151,8 @@ export function ActivityList({ items, loading }: ActivityListProps) {
         return { title: t('activity.wdSpend', { amount: money(item.amount) }) }
       case 'wd_save':
         return { title: t('activity.wdSave', { amount: money(item.amount) }) }
+      case 'wd_vault':
+        return { title: t('activity.wdVault', { amount: money(item.amount), vault: vaultName(item) }) }
       case 'split':
         return { title: t('activity.split', { pct: pct(item.bps) }) }
       case 'lock':
