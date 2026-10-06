@@ -35,6 +35,14 @@ export const COINAI_ABI = [
   'error SplitOutOfRange()',
 ] as const
 
+// Vault positions are ERC-4626 shares in the user's own wallet (evm/src/SimpleVault.sol), so the user
+// redeems them straight from the vault; CoinAI isn't involved and its savings lock doesn't apply.
+const VAULT_ABI = [
+  'function balanceOf(address owner) view returns (uint256)',
+  'function withdraw(uint256 assets,address receiver,address owner) returns (uint256)',
+  'function redeem(uint256 shares,address receiver,address owner) returns (uint256)',
+] as const
+
 // Contract error name → `Error(Contract, #N)`, localized via lib/errors.ts
 const ERROR_CODES: Record<string, number> = {
   InvalidAmount: 1,
@@ -139,6 +147,25 @@ export const coinaiEvm: CoinAIService = {
     const amountOut = BigInt(await simulate(c.investSavings.staticCall(amount, fromYieldTarget(target))))
     const hash = await sendTx(c.investSavings(amount, fromYieldTarget(target), { gasLimit: 400_000 }))
     return { amountIn: amount, amountOut, hash }
+  },
+
+  async withdrawFromVault(user: string, target: YieldTarget, amount: bigint | 'all') {
+    const vault = new Contract(
+      (await reader().vaultOf(fromYieldTarget(target))) as string,
+      VAULT_ABI,
+      (await getEthersSigner()) as ContractRunner,
+    )
+    if (amount === 'all') {
+      // Redeeming every share leaves no dust behind, unlike withdrawing the displayed amount.
+      const shares = BigInt(await vault.balanceOf(user))
+      if (shares === 0n) throw new Error(`Error(Contract, #${ERROR_CODES.EmptyWithdrawal})`)
+      const out = BigInt(await simulate(vault.redeem.staticCall(shares, user, user)))
+      const hash = await sendTx(vault.redeem(shares, user, user, { gasLimit: 200_000 }))
+      return { amount: out, hash }
+    }
+    await simulate(vault.withdraw.staticCall(amount, user, user))
+    const hash = await sendTx(vault.withdraw(amount, user, user, { gasLimit: 200_000 }))
+    return { amount, hash }
   },
 
   async setSplit(user: string, bps: number) {
