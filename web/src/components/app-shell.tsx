@@ -19,7 +19,9 @@ import {
   SlidersHorizontalIcon,
   SunIcon,
   TrendingUpIcon,
+  UsersIcon,
   WalletIcon,
+  type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { AddressAvatar } from '@/components/brand/address-avatar'
@@ -58,6 +60,40 @@ function labelClass(rail: boolean): string {
     rail ? '-translate-x-1 opacity-0' : 'translate-x-0 opacity-100 delay-[90ms]',
   )
 }
+
+// Grouped by what people come to do: their money, growing it, the AI team, doing it together.
+const NAV_SECTIONS: { label: MessageKey; items: { to: string; label: MessageKey; icon: LucideIcon; end?: boolean }[] }[] = [
+  {
+    label: 'nav.sectionMoney',
+    items: [
+      { to: '/app', label: 'nav.dashboard', icon: LandmarkIcon, end: true },
+      { to: '/app/activity', label: 'nav.activity', icon: ActivityIcon },
+      { to: '/app/link', label: 'nav.paymentLink', icon: Link2Icon },
+      { to: '/app/withdraw', label: 'nav.withdraw', icon: ArrowUpRightIcon },
+    ],
+  },
+  {
+    label: 'nav.sectionGrow',
+    items: [
+      { to: '/app/yield', label: 'nav.yield', icon: TrendingUpIcon },
+      { to: '/app/portfolio', label: 'nav.portfolio', icon: ChartPieIcon },
+      { to: '/app/market', label: 'nav.market', icon: CandlestickChartIcon },
+    ],
+  },
+  {
+    label: 'nav.sectionAi',
+    items: [
+      { to: '/app/agent', label: 'nav.agent', icon: BotIcon },
+      { to: '/app/chat', label: 'nav.chat', icon: MessageCircleIcon },
+    ],
+  },
+  { label: 'nav.sectionSocial', items: [{ to: '/groups', label: 'nav.groups', icon: UsersIcon }] },
+]
+// Settings-like pages share the pinned bottom section, so the scrolling part fits a laptop screen.
+const MORE_ITEMS: { to: string; label: MessageKey; icon: LucideIcon }[] = [
+  { to: '/app/rules', label: 'nav.rules', icon: SlidersHorizontalIcon },
+  { to: '/app/faucet', label: 'nav.faucet', icon: DropletsIcon },
+]
 
 function SectionLabel({ rail, children }: { rail: boolean; children: string }) {
   return (
@@ -101,55 +137,26 @@ function SidebarContent({ rail = false, onNavigate, onToggle }: SidebarContentPr
         )}
       </div>
       <nav className="no-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <SectionLabel rail={rail}>{t('nav.menu')}</SectionLabel>
-        <NavLink to="/app" end onClick={onNavigate} className={navClass}>
-          <LandmarkIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.dashboard')}</span>
-        </NavLink>
-        <NavLink to="/app/activity" onClick={onNavigate} className={navClass}>
-          <ActivityIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.activity')}</span>
-        </NavLink>
-        <NavLink to="/app/yield" onClick={onNavigate} className={navClass}>
-          <TrendingUpIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.yield')}</span>
-        </NavLink>
-        <NavLink to="/app/agent" onClick={onNavigate} className={navClass}>
-          <BotIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.agent')}</span>
-        </NavLink>
-        <NavLink to="/app/portfolio" onClick={onNavigate} className={navClass}>
-          <ChartPieIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.portfolio')}</span>
-        </NavLink>
-        <NavLink to="/app/market" onClick={onNavigate} className={navClass}>
-          <CandlestickChartIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.market')}</span>
-        </NavLink>
-        <NavLink to="/app/chat" onClick={onNavigate} className={navClass}>
-          <MessageCircleIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.chat')}</span>
-        </NavLink>
-        <SectionLabel rail={rail}>{t('nav.action')}</SectionLabel>
-        <NavLink to="/app/withdraw" onClick={onNavigate} className={navClass}>
-          <ArrowUpRightIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.withdraw')}</span>
-        </NavLink>
-        <NavLink to="/app/rules" onClick={onNavigate} className={navClass}>
-          <SlidersHorizontalIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.rules')}</span>
-        </NavLink>
-        <NavLink to="/app/link" onClick={onNavigate} className={navClass}>
-          <Link2Icon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.paymentLink')}</span>
-        </NavLink>
-        <NavLink to="/app/faucet" onClick={onNavigate} className={navClass}>
-          <DropletsIcon className="size-[18px] shrink-0" />
-          <span className={label}>{t('nav.faucet')}</span>
-        </NavLink>
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label}>
+            <SectionLabel rail={rail}>{t(section.label)}</SectionLabel>
+            {section.items.map(({ to, label: itemLabel, icon: Icon, end }) => (
+              <NavLink key={to} to={to} end={end} onClick={onNavigate} className={navClass}>
+                <Icon className="size-[18px] shrink-0" />
+                <span className={label}>{t(itemLabel)}</span>
+              </NavLink>
+            ))}
+          </div>
+        ))}
       </nav>
       <div className="mt-2 flex flex-col pt-2 border-t">
-        <SectionLabel rail={rail}>{t('nav.protocol')}</SectionLabel>
+        <SectionLabel rail={rail}>{t('nav.sectionMore')}</SectionLabel>
+        {MORE_ITEMS.map(({ to, label: itemLabel, icon: Icon }) => (
+          <NavLink key={to} to={to} onClick={onNavigate} className={navClass}>
+            <Icon className="size-[18px] shrink-0" />
+            <span className={label}>{t(itemLabel)}</span>
+          </NavLink>
+        ))}
         <NavLink to="/app/settings" onClick={onNavigate} className={navClass}>
           <SettingsIcon className="size-[18px] shrink-0" />
           <span className={label}>{t('settings.title')}</span>
