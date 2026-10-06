@@ -12,7 +12,17 @@ export type AgentStep = {
   proposal?: { kind: 'set_split' | 'invest'; bps?: number; amount?: string; target?: YieldTarget; reason: string }
   outcome: 'analyzed' | 'proposed' | 'skipped' | 'rejected' | 'approved' | 'executed' | 'failed'
   note?: string
+  code?: LlmFailure
   txHash?: string
+}
+
+/** Why an LLM call failed (mirrors api/_lib/llm.ts); shown as agent.llm_<code>. */
+export type LlmFailure = 'no_credit' | 'rate_limited' | 'bad_key' | 'timeout' | 'unavailable' | 'bad_output'
+
+/** The AI failure that kept a run from doing anything, if any: shown as a banner instead of a silent "0 moves". */
+export function runFailure(run: AgentRun): LlmFailure | null {
+  if (run.mode !== 'agent' || run.executed.length > 0) return null
+  return run.steps.find((s) => s.outcome === 'failed' && s.code)?.code ?? null
 }
 
 export type InvestorProfile = {
@@ -29,6 +39,21 @@ export type MarketAnalysis = {
   at: string
 }
 
+/** How the agents arrived at a run's numbers (mirrors `Decision` in api/_lib/swarm.ts). Older runs have none. */
+export type AgentDecision = {
+  reference: { source: 'strategy' | 'profile'; mix: VaultMix }
+  mix: VaultMix | null
+  investPercent: number
+  clamped: boolean
+  maxTilt: number
+  minConfidence: number
+  confidence: { savings: number | null; investment: number | null }
+  split: { from: number; to: number | null }
+  skipped: { savings?: string; investment?: string }
+  spendable?: number
+  previous: { at: string; mix: VaultMix | null; splitPercent: number | null } | null
+}
+
 export type AgentRun = {
   at: string
   mode: 'agent' | 'report-only'
@@ -36,6 +61,7 @@ export type AgentRun = {
   market?: MarketAnalysis | null
   allocation?: Record<YieldTarget, number> | null
   strategy?: { name: string; vaultMix: VaultMix } | null
+  decision?: AgentDecision | null
   steps: AgentStep[]
   executed: { kind: string; reason: string; txHash: string; explorer: string }[]
   reminders: string[]
@@ -43,6 +69,21 @@ export type AgentRun = {
 }
 
 export type PoolStore = { pools: SavedPool[]; activeId: string | null }
+
+/** Mirrors `Invoice` in api/_lib/invoices.ts. */
+export type Invoice = {
+  id: string
+  to: string
+  name: string
+  memo: string
+  reference: string
+  currency: 'IDR' | 'USDT'
+  amount: number
+  createdAt: number
+  status: 'open' | 'paid' | 'cancelled'
+  paid?: { txHash: string; payer: string; amountUsdt: string; saved: string; idrPerUsd: number | null; at: number }
+}
+export type InvoiceInput = { name: string; memo: string; reference: string; currency: Invoice['currency']; amount: number }
 
 export type PoolReview = {
   verdict: 'fits' | 'too_risky' | 'too_cautious'
@@ -109,14 +150,28 @@ const post = (path: string, payload: object) =>
   fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), keepalive: true })
 
 export const autopilot = {
-  /** Fire-and-forget after a payment: lets the recipient's agents invest the new savings right away. */
-  nudge: (recipient: string) => void post('/api/agent/autopilot', { user: recipient, action: 'nudge' }).catch(() => {}),
+  /** Fire-and-forget after a payment: the recipient's agents invest the new savings, and with the tx hash the recipient gets a Telegram receipt. */
+  nudge: (recipient: string, txHash?: string) =>
+    void post('/api/agent/autopilot', { user: recipient, action: 'nudge', txHash }).catch(() => {}),
   /** Enrolls a wallet that authorized the agent in the daily run; resolves to whether autopilot is on. */
   register: async (address: string): Promise<boolean> => {
     const res = await post('/api/agent/autopilot', { user: address, action: 'register' }).catch(() => null)
     const body = res?.ok ? await res.json().catch(() => null) : null
     return body?.autopilot === true
   },
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error ?? `request_failed_${res.status}`)
+  return body as T
+}
+
+// The pay page's side of invoices: public, and the server reads the payment from the chain before marking it paid.
+export const invoiceApi = {
+  get: (id: string) =>
+    fetch(`/api/invoices?id=${encodeURIComponent(id)}`).then((r) => readJson<{ invoice: Invoice; idrPerUsd: number | null }>(r)),
+  markPaid: (id: string, txHash: string) => post('/api/invoices?paid', { id, txHash }).then((r) => readJson<{ invoice: Invoice }>(r)),
 }
 
 export const agentApi = {
@@ -162,6 +217,12 @@ export const agentApi = {
     call<{ keys: LlmKey[] }>(address, '/api/agent/keys', { method: 'POST', body: JSON.stringify({ key }) }),
   removeLlmKey: (address: string, id: string) =>
     call<{ keys: LlmKey[] }>(address, '/api/agent/keys', { method: 'DELETE', body: JSON.stringify({ id }) }),
+  // Invoices the wallet issued (last 50, newest first).
+  invoices: (address: string) => call<{ invoices: Invoice[] }>(address, '/api/invoices'),
+  createInvoice: (address: string, input: InvoiceInput) =>
+    call<{ invoice: Invoice }>(address, '/api/invoices', { method: 'POST', body: JSON.stringify(input) }),
+  cancelInvoice: (address: string, id: string) =>
+    call<{ invoice: Invoice }>(address, '/api/invoices?cancel', { method: 'POST', body: JSON.stringify({ id }) }),
   unsubscribe: (address: string, channel: 'email' | 'telegram') =>
     call<{ subscription: Subscription }>(address, '/api/subscribe', {
       method: 'DELETE',
