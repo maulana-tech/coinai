@@ -26,6 +26,17 @@ export const kv = {
     const raw = JSON.stringify(value, replacer)
     return ttlSeconds ? cmd('SET', key, raw, 'EX', ttlSeconds) : cmd('SET', key, raw)
   },
+  /** Sets only if the key doesn't exist yet; true when this call set it (claim-once, e.g. a tx hash). */
+  async setnx(key: string, value: unknown, ttlSeconds?: number): Promise<boolean> {
+    const raw = JSON.stringify(value, replacer)
+    const args: (string | number)[] = ttlSeconds ? ['SET', key, raw, 'NX', 'EX', ttlSeconds] : ['SET', key, raw, 'NX']
+    return (await cmd<string | null>(...args)) === 'OK'
+  },
+  async mget<T>(keys: string[]): Promise<(T | null)[]> {
+    if (!keys.length) return []
+    const raw = await cmd<(string | null)[]>('MGET', ...keys)
+    return raw.map((r) => (r == null ? null : (JSON.parse(r) as T)))
+  },
   del: (key: string) => cmd('DEL', key),
   sadd: (key: string, member: string) => cmd('SADD', key, member),
   smembers: (key: string) => cmd<string[]>('SMEMBERS', key),
