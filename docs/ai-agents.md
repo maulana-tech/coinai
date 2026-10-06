@@ -7,9 +7,9 @@ coinAI's agent team manages a user's savings **inside limits the user signs on-c
 | Role | Kind | Job | Can it move funds? |
 |---|---|---|---|
 | **Market Analyst** | LLM | Reads BNB, BTC, ETH and CAKE (spot price from **Chainlink feeds on BNB Smart Chain**, 30-day trend and volatility from Binance daily candles) and calls the regime: `risk_on`, `neutral` or `risk_off`. Cached 30 min and shared by all users | No — read-only |
-| **Savings Strategist** | LLM | Proposes a new savings split from payment frequency, size, days since last payment, spendable buffer and the user's goal | No — proposes only |
-| **Investment Strategist** | LLM | Splits idle savings across Conservative / Balanced / Growth, starting from the investor profile (risk, horizon, goal) and tilting with the market regime. Every payment gets invested the same way (automatic DCA) | No — proposes only |
-| **Guardrails** (`guard.ts`) | Code | Rejects anything outside the user's policy, over the idle savings still uncommitted in this run, locked, or without a reason | No |
+| **Savings Strategist** | LLM | Proposes a new savings split from payment frequency, size, days since last payment, spendable buffer, the user's goal and the team's recent runs, with a confidence | No — proposes only |
+| **Investment Strategist** | LLM | Splits idle savings across Conservative / Balanced / Growth, starting from a reference mix (saved pool or investor profile) and tilting at most 15 points per vault, mostly with the market regime, with a confidence. Every payment gets invested the same way (automatic DCA) | No — proposes only |
+| **Confidence gate + Guardrails** (`decision.ts`, `guard.ts`) | Code | Skips proposals under 50% confidence (or without one); bounds the mix around the reference; then rejects anything outside the user's policy, over the idle savings still uncommitted in this run, locked, or without a reason | No |
 | **Risk Officer** | LLM | Reviews each surviving proposal against data, profile and market; can **veto, never modify**. Missing/invalid review = rejected | No |
 | **Executor** | Code | Sends approved proposals from the agent wallet: `agentSetSplit`, then one `agentInvest` per vault | Only into the user's own vault positions |
 | **Reporter** | LLM | Writes the update in the user's language: what came in, the market read, what each agent did and why, reminders | No |
@@ -24,6 +24,33 @@ readUserState + profile ─┬─ Savings Strategist ──────┐
 The orchestrator (`web/api/_lib/swarm.ts`) is plain TypeScript, so the sequence is fixed and every step is recorded (`steps[]` with `analyzed / proposed / skipped / rejected / approved / executed / failed`).
 
 Each role has its own page in the app at `/app/agent/<role>` (`market`, `savings`, `investment`, `guardrails`, `risk`, `executor`, `reporter`) showing what it reads, its limits, a role-specific panel (live market board, investor profile + latest allocation, on-chain limits, approvals vs vetoes, transactions, latest report) and its recent decisions.
+
+## How a decision is made and explained
+
+`web/api/_lib/decision.ts` is the deterministic half of every investment decision:
+
+1. **Reference mix.** The active saved pool's vault mix, or, without one, the investor profile: conservative 70/25/5, moderate 25/50/25, aggressive 10/40/50 (Conservative/Balanced/Growth), with the horizon moving 10 points between Growth and Conservative (short → safer, long → more growth).
+2. **Tilt bound.** The strategist may move each vault at most `MAX_TILT` = 15 points from the reference (measured on the share of the invested amount). Anything further is pulled back in code (`fitAllocation`), keeping the invested percentage; the run records `clamped`.
+3. **Confidence gate.** Both strategists return `confidence` 0..1. Under `MIN_CONFIDENCE` = 0.5, or missing, the proposal is **skipped** (logged with what it would have done), never executed. Fails closed like the Risk Officer.
+4. **Memory.** The last 5 agent runs (`runs:<address>`) are summarized for both strategists and the Risk Officer: regime, split change, invested mix, what executed and what was rejected or skipped. They must not reverse a recent move without new data, and the Risk Officer vetoes one that does.
+
+Each run stores the result as `RunResult.decision` (reference, final mix, invested share, clamp, confidences, split from → to, previous run). The app shows it as **"Why the agents chose this mix"** on AI Portfolio and the Investment Strategist page: per vault the current position, the reference, the tilt and the final weight, the buffer, the savings split with its confidence, the rule and the previous run. Tests: `node --experimental-strip-types --test api/_lib/decision.test.ts`.
+
+## Agent team vs a fixed rule
+
+`web/scripts/evaluate-agents.ts` replays the last 365 days (`--days N`) of Binance daily closes for BNB, BTC and ETH and compares the agent team with a fixed rule (20% of every payment into Balanced) for three seeded income patterns: a monthly salary, freelance (≈4 jobs a month with a 15-day dry spell) and a daily gig. Each spends 26 tUSDT a day; a "short day" is a day the spendable balance can't cover that.
+
+The agent side (`web/api/_lib/evaluation.ts`) is the strategists' prompt rules as code, so the replay is free and repeatable:
+
+- **Split:** hold with fewer than 2 payments; save less (−10) on a thin buffer, a gap over 1.5× the person's usual rhythm, next to nothing left over from earlier payments (spendable minus the spendable part of an average payment < 10% of a payment), or a left-over that keeps shrinking run over run and is under a quarter of a payment; save more (+10) on steady income with a healthy buffer and a quarter of a payment left over that isn't shrinking. Bounded by the signed range (10–40% here).
+- **Mix:** the profile's reference mix (moderate: 25/50/25), tilted by a rule-based regime read (BNB + BTC 30-day trend and volatility: risk_on +10 Growth / −10 Conservative, risk_off +15 Conservative / −15 Growth) and bounded by `fitAllocation`, the same code a live run uses.
+- **Vault models:** `testnet` (the deployed vaults' fixed APY) and `market` (roadmap F6 preview: Balanced half-tracks BTC, Growth half-tracks BNB + ETH).
+
+The replay found two flaws, fixed in both the rules and the Savings Strategist prompt: a "long gap" measured in absolute days (it lowered every monthly salary), and raising the split without checking whether anything was left over (43 short days for the salary pattern). Because "shrinking" needs the previous run's spendable balance, runs now record it (`RunResult.decision.spendable`) and the memory passes it to the strategists.
+
+The **live-model spot check** then calls the real Savings and Investment Strategists (same prompts, a `describe()`-shaped view of the replay's state) at evenly spaced payments and records how often the split direction matches the rules, how far the invested mix is from the rules' mix, and how many proposals the confidence gate skipped. It needs `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` (env or `web/.env`); `--no-llm` skips it, `--points N` sets the sample size.
+
+Output: `web/src/lib/evaluation-results.ts`, shown as **"Agent team vs a fixed rule"** on AI Portfolio, plus a Markdown table on stdout for the README. Tests: `npx tsx --test api/_lib/evaluation.test.ts`.
 
 ## Pool simulator and Portfolio Reviewer (`/app/market`)
 
@@ -81,6 +108,8 @@ Worst case with a jailbroken or confused model: the split moves within the user'
 | `OPENROUTER_MODEL_CHAT` | chat advisor — **must support tool calling** |
 
 Structured roles ask for `response_format: json_object` and the parser tolerates JSON wrapped in prose or code fences.
+
+**When the models fail.** Every failed LLM step records a `code` (`llmFailure` in `llm.ts`): `bad_key` (401), `no_credit` (402/403), `rate_limited` (429), `timeout`, `bad_output` (no readable JSON after the corrective retry) or `unavailable`. The app shows the cause in plain words on the step and, when it kept the run from doing anything, a banner that nothing changed and the savings are untouched (also as the toast on AI Portfolio). If the Reporter is down too, the report starts with a code-written line saying the same, so Telegram and email don't just list reminders. The server logs a warning at startup when the Risk Officer resolves to the strategists' model: set `OPENROUTER_MODEL_RISK` to a different, stable model so the review is independent. Tests: `npx tsx --test api/_lib/llm.test.ts`.
 
 ## When the team runs
 
@@ -157,6 +186,10 @@ Chat, run and subscribe calls need a session: the app asks the wallet to `person
 | `web/api/_lib/swarm.ts` | Team roles, prompts, profile, market analysis, orchestration, reminders, reporter |
 | `web/api/market.ts`, `web/api/agent/profile.ts` | Public market endpoint; investor profile |
 | `web/api/_lib/guard.ts` (+ `.test.ts`) | Deterministic proposal checks |
+| `web/api/_lib/decision.ts` (+ `.test.ts`) | Reference mix, tilt bound, confidence gate |
+| `web/src/components/decision-card.tsx` | "Why the agents chose this mix" table |
+| `web/api/_lib/evaluation.ts` (+ `.test.ts`), `web/scripts/evaluate-agents.ts` | Agent vs fixed-rule replay and live-model spot check |
+| `web/src/components/evaluation-card.tsx`, `web/src/lib/evaluation-results.ts` | Evaluation panel and its generated data |
 | `web/api/_lib/chain.ts` | Read user state, execute from the agent wallet |
 | `web/api/_lib/llm.ts` | OpenRouter client |
 | `web/api/_lib/kv.ts` | Upstash Redis REST client |

@@ -9,6 +9,22 @@
     "vaultGrowth": "0xf9B035426d2A16EF00F0547dc0F4Ed9226D2671d",
     "agent": "0x03c8faF61c40F35CCFFd8fDcCa7F037C2dB2f6C6",
     "depositRouter": "0x2e72901f3350b7f3f5E4E35918a6e4b4dC5bf104",
-    "chainlinkBnbUsd": "0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526"
+    "chainlinkBnbUsd": "0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526",
+    "v2": {
+      "deployBlock": 135234110,
+      "coinai": "0x2Cf391a4074927a6D3b5B81af3D3D993D00DF515",
+      "basketVault": "0x53bc4990EF969F60Cf39650212019a89742052ed",
+      "groupFunds": "0x1129b2C358360C1eaC3C379Cf05f87028A5855d1",
+      "agentRegistry": "0xD063CeD905bD9034778e86e9d98716b79B85405E",
+      "basketAssets": [
+        "tUSDT",
+        "BNB",
+        "BTC",
+        "ETH",
+        "CAKE"
+      ],
+      "basketCurator": "0x03c8faF61c40F35CCFFd8fDcCa7F037C2dB2f6C6",
+      "verified": "sourcify (exact match)"
+    }
   }
 }

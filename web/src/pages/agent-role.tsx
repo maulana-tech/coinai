@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeftIcon, ExternalLinkIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConnectPrompt } from '@/components/connect-prompt'
+import { DecisionCard } from '@/components/decision-card'
 import { MarketAnalysisCard, MarketBoard } from '@/components/market-board'
 import { NotFoundContent } from '@/components/not-found-content'
 import { Badge } from '@/components/ui/badge'
@@ -235,41 +236,6 @@ function ProfileCard({ address }: { address: string }) {
   )
 }
 
-function AllocationCard({ runs }: { runs: AgentRun[] | null }) {
-  const t = useT()
-  const { locale } = useSettings()
-  const last = runs?.find((r) => r.allocation)
-  return (
-    <Card className="rounded-2xl shadow-none">
-      <CardHeader>
-        <CardTitle>{t('agentRole.allocationTitle')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {last?.allocation ? (
-          <>
-            {YIELD_TARGETS.map((target) => (
-              <div key={target}>
-                <div className="flex justify-between text-sm">
-                  <span>{t(VAULT_NAME_KEY[target])}</span>
-                  <span className="tabular-nums">{last.allocation![target]}%</span>
-                </div>
-                <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${last.allocation![target]}%` }} />
-                </div>
-              </div>
-            ))}
-            <p className="text-xs text-muted-foreground">
-              {t('agentRole.allocationMeta', { time: formatDateTime(new Date(last.at), locale) })}
-            </p>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t('agentRole.allocationEmpty')}</p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
 function InvestmentPanel({ address, runs }: { address: string; runs: AgentRun[] | null }) {
   const { rates } = useAppState()
   const { account } = useAppState()
@@ -278,7 +244,7 @@ function InvestmentPanel({ address, runs }: { address: string; runs: AgentRun[] 
     <>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ProfileCard address={address} />
-        <AllocationCard runs={runs} />
+        <DecisionCard runs={runs} vaults={vaults} />
       </div>
       <YieldSourcesCard vaults={vaults} loading={loading} rates={rates} selectedTarget={account?.yieldTarget} readOnly />
     </>

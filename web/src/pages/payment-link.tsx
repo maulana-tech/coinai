@@ -5,6 +5,7 @@ import { renderSVG } from 'uqr'
 import { AddressAvatar } from '@/components/brand/address-avatar'
 import { TokenIcon } from '@/components/brand/token-icon'
 import { ConnectPrompt } from '@/components/connect-prompt'
+import { InvoicesCard } from '@/components/invoices-card'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -102,6 +103,7 @@ export function PaymentLinkPage() {
           </div>
         </CardContent>
       </Card>
+      <InvoicesCard address={address} name={name} />
     </section>
   )
 }

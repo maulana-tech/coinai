@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
-import { agentApi, isAgentActive as isActive, autopilot, hasAgentSession, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
+import { agentApi, isAgentActive as isActive, autopilot, hasAgentSession, runFailure, type AgentRun, type AgentStep, type Subscription } from '@/lib/agent-api'
 import { AGENT_ROLES, agentRoleFor } from '@/lib/agent-roles'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
@@ -212,7 +212,8 @@ export function StepRow({ step }: { step: AgentStep }) {
       ? t('agent.proposalSplit', { pct: (p.bps ?? 0) / 100 })
       : t('agent.proposalInvest', { amount: p.amount ?? '', vault: t(VAULT_NAME_KEY[p.target ?? 'balanced']) })
     : null
-  const detail = step.note || p?.reason
+  // An LLM failure reads as its cause in plain words; the raw provider message stays on hover.
+  const detail = step.code ? t(`agent.llm_${step.code}` as MessageKey) : step.note || p?.reason
   return (
     <li className="flex items-start gap-3 py-2">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent">
@@ -226,7 +227,11 @@ export function StepRow({ step }: { step: AgentStep }) {
           </Badge>
         </div>
         {title && <p className="text-sm">{title}</p>}
-        {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+        {detail && (
+          <p className="text-xs text-muted-foreground" title={step.code ? step.note : undefined}>
+            {detail}
+          </p>
+        )}
         {step.txHash && (
           <a
             href={explorerTxUrl(step.txHash)}
@@ -257,6 +262,7 @@ function RunCard({
   const { locale } = useSettings()
   const [localRunning, setRunning] = useState(false)
   const running = localRunning || remoteRunning
+  const failure = run ? runFailure(run) : null
 
   const handleRun = async () => {
     setRunning(true)
@@ -287,6 +293,12 @@ function RunCard({
             <p className="text-xs text-muted-foreground">
               {t('agent.lastRun', { time: formatDateTime(new Date(run.at), locale) })}
             </p>
+            {failure && (
+              <div role="status" className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium text-destructive">{t(`agent.llm_${failure}` as MessageKey)}</p>
+                <p className="mt-1 text-muted-foreground">{t('agent.llmNothingChanged')}</p>
+              </div>
+            )}
             {run.steps.length > 0 && (
               <ul className="max-h-96 divide-y overflow-y-auto pr-1">{run.steps.map((s, i) => <StepRow key={i} step={s} />)}</ul>
             )}

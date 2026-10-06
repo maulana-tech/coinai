@@ -93,6 +93,12 @@ export const coinaiMock: CoinAIService = {
     return { amountIn: amount, amountOut: amount, hash: mockHash() } // 1:1 vault shares in mock
   },
 
+  async withdrawFromVault() {
+    await delay()
+    // the mock keeps no vault positions (lib/yield.ts shows them empty), so there's nothing to take out
+    throw new Error('Error(Contract, #7)')
+  },
+
   async getAgent(user) {
     await delay()
     return agents.get(user) ?? NO_AGENT

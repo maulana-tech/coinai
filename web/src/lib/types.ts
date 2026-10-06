@@ -40,6 +40,8 @@ export interface CoinAIService {
   withdrawSpend(user: string, amount: bigint): Promise<TxResult>
   withdrawSavings(user: string, shares: bigint): Promise<WithdrawSavingsResult>
   investSavings(user: string, amount: bigint, target: YieldTarget): Promise<YieldDepositResult>
+  /** Takes a vault position back to the wallet: `amount` in tUSDT, or 'all' to redeem every share. */
+  withdrawFromVault(user: string, target: YieldTarget, amount: bigint | 'all'): Promise<WithdrawSavingsResult>
   setSplit(user: string, bps: number): Promise<TxResult>
   setLock(user: string, until: bigint): Promise<TxResult>
   setYieldTarget(user: string, target: YieldTarget): Promise<TxResult>
