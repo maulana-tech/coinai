@@ -26,8 +26,22 @@ function errorMessage(e: unknown): string {
   return 'Something went wrong'
 }
 
+const GROUP_ERROR_KEYS: Record<string, MessageKey> = {
+  InvalidFund: 'groups.errInvalidFund',
+  NotFound: 'groups.errNotFound',
+  Unauthorized: 'groups.errUnauthorized',
+  Closed: 'groups.errClosed',
+  NotMember: 'groups.errNotMember',
+  InvalidAmount: 'groups.errInvalidAmount',
+  TargetNotReached: 'groups.errTargetNotReached',
+  NothingToRefund: 'groups.errNothingToRefund',
+  TooLong: 'groups.errTooLong',
+}
+
 export function errorKey(e: unknown): MessageKey {
   const text = `${String(e)} ${errorMessage(e)}`
+  const group = /group:(\w+)/.exec(text)
+  if (group) return GROUP_ERROR_KEYS[group[1]] ?? 'errors.txReverted'
   const contract = /Error\(Contract, #(\d+)\)/.exec(text)
   if (contract) return CONTRACT_ERROR_KEYS[Number(contract[1])] ?? 'errors.generic'
   if (text.includes('faucet_unavailable')) return 'errors.faucetUnavailable'
