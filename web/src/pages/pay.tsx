@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { CheckIcon, CopyIcon, ExternalLinkIcon, LogOutIcon } from 'lucide-react'
+import { BanIcon, CheckIcon, CopyIcon, ExternalLinkIcon, LogOutIcon, ReceiptTextIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { AddressAvatar } from '@/components/brand/address-avatar'
 import { LogoWordmark } from '@/components/brand/logo'
@@ -11,15 +11,17 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Input } from '@/components/ui/input'
 import { useAppState } from '@/lib/app-state'
 import { isValidRecipientAddress } from '@/lib/address'
-import { autopilot } from '@/lib/agent-api'
+import { autopilot, invoiceApi, type Invoice } from '@/lib/agent-api'
 import { coinai } from '@/lib/coinai'
 import { explorerTxUrl } from '@/lib/config'
 import { errorKey } from '@/lib/errors'
 import { parseToken, shortHex } from '@/lib/format'
-import { formatMoney, useT } from '@/lib/i18n'
+import { formatDateTime, formatMoney, useT } from '@/lib/i18n'
+import { formatInvoiceAmount } from '@/lib/invoice'
 import { useSettings } from '@/lib/settings'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { useWallet } from '@/lib/wallet'
+import { requiredUnits } from '../../shared/invoice.js'
 
 const QUICK_AMOUNTS = ['25', '50', '100']
 const MAX_NAME_LENGTH = 40
@@ -66,8 +68,25 @@ function PayCard({ recipient }: { recipient: string }) {
   })
   const [splitPct, setSplitPct] = useState<number | null>(null)
   const [paid, setPaid] = useState<{ amount: bigint; hash: string } | null>(null)
+  // ?invoice=<id>: a fixed amount, memo and reference set by the recipient; rupiah converts at the server's rate,
+  // the same one it checks the payment against.
+  const invoiceId = searchParams.get('invoice')
+  const [invoice, setInvoice] = useState<{ data: Invoice; idrPerUsd: number | null } | 'loading' | 'missing' | null>(
+    invoiceId ? 'loading' : null,
+  )
   const anyBusy = busy !== null
-  const displayName = name !== '' ? name : shortAddress(recipient)
+  const inv = invoice !== null && typeof invoice === 'object' ? invoice.data : null
+  const invoiceRate = inv?.currency === 'IDR' && typeof invoice === 'object' ? (invoice?.idrPerUsd ?? rates.idr) : 0
+  const invoiceUnits = inv ? requiredUnits(inv, invoiceRate) : null
+  const displayName = inv?.name || (name !== '' ? name : shortAddress(recipient))
+
+  useEffect(() => {
+    if (!invoiceId) return
+    invoiceApi.get(invoiceId).then(
+      (r) => setInvoice(r.invoice.to.toLowerCase() === recipient.toLowerCase() ? { data: r.invoice, idrPerUsd: r.idrPerUsd } : 'missing'),
+      () => setInvoice('missing'),
+    )
+  }, [invoiceId, recipient])
 
   useEffect(() => {
     let cancelled = false
@@ -95,7 +114,7 @@ function PayCard({ recipient }: { recipient: string }) {
   const handlePay = async () => {
     let parsed: bigint
     try {
-      parsed = parseToken(value)
+      parsed = invoiceUnits ?? parseToken(value)
       if (parsed <= 0n) throw new Error('invalid amount')
     } catch {
       toast.error(t('errors.invalidAmount'))
@@ -107,8 +126,50 @@ function PayCard({ recipient }: { recipient: string }) {
     )
     if (result) {
       setPaid({ amount: parsed, hash: result.hash })
-      autopilot.nudge(recipient) // recipient's agents invest the new savings (server re-checks on-chain)
+      if (inv) {
+        // The server reads the payment from the chain before marking the invoice paid (and sends the receipt).
+        const settled = await invoiceApi.markPaid(inv.id, result.hash).catch(() => null)
+        if (settled) setInvoice((cur) => (cur !== null && typeof cur === 'object' ? { ...cur, data: settled.invoice } : cur))
+        else toast.warning(t('invoice.markLater'))
+      }
+      autopilot.nudge(recipient, result.hash) // agents invest the new savings + Telegram receipt (server re-checks on-chain)
     }
+  }
+
+  if (invoice === 'loading') {
+    return (
+      <Card className="w-full max-w-md rounded-2xl shadow-none backdrop-blur-sm bg-card/80">
+        <CardContent className="py-10 text-center text-sm text-muted-foreground">{t('invoice.loading')}</CardContent>
+      </Card>
+    )
+  }
+  if (invoice === 'missing') return <InvalidLink body={t('invoice.notFound')} />
+  if (inv && paid === null && inv.status !== 'open') {
+    const wasPaid = inv.status === 'paid'
+    return (
+      <Card className="w-full max-w-md rounded-2xl shadow-none backdrop-blur-sm bg-card/80">
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <span className="flex size-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            {wasPaid ? <CheckIcon className="size-7" /> : <BanIcon className="size-7" />}
+          </span>
+          <p className="text-xl font-semibold tracking-tight">{t(wasPaid ? 'invoice.alreadyPaid' : 'invoice.cancelled')}</p>
+          <p className="text-sm text-muted-foreground">
+            {inv.memo} · {formatInvoiceAmount(inv, locale)}
+          </p>
+          {wasPaid && inv.paid && (
+            <a
+              href={explorerTxUrl(inv.paid.txHash)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {formatDateTime(new Date(inv.paid.at * 1000), locale)} · {shortHex(inv.paid.txHash)}
+              <ExternalLinkIcon className="size-3" />
+            </a>
+          )}
+        </CardContent>
+      </Card>
+    )
   }
 
   if (paid !== null) {
@@ -118,7 +179,8 @@ function PayCard({ recipient }: { recipient: string }) {
           <span className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary-ink">
             <CheckIcon className="size-7" />
           </span>
-          <p className="text-xl font-semibold tracking-tight">{t('pay.successTitle')}</p>
+          <p className="text-xl font-semibold tracking-tight">{t(inv ? 'invoice.paidTitle' : 'pay.successTitle')}</p>
+          {inv && <p className="text-sm text-muted-foreground">{inv.memo}{inv.reference && ` · #${inv.reference}`}</p>}
           <p className="flex items-center gap-2 text-2xl font-semibold tracking-tight tabular-nums">
             <TokenIcon token="usdt" size={36} />
             {formatMoney(paid.amount, 'usdt', rates, locale)}
@@ -136,9 +198,11 @@ function PayCard({ recipient }: { recipient: string }) {
             <ExternalLinkIcon className="size-3" />
           </a>
           <div className="mt-4 flex flex-col items-center gap-2">
-            <Button variant="outline" onClick={() => setPaid(null)}>
-              {t('pay.payAgain')}
-            </Button>
+            {!inv && (
+              <Button variant="outline" onClick={() => setPaid(null)}>
+                {t('pay.payAgain')}
+              </Button>
+            )}
             <Button asChild variant="link">
               <Link to="/">{t('pay.createOwn')}</Link>
             </Button>
@@ -163,6 +227,26 @@ function PayCard({ recipient }: { recipient: string }) {
         <p className="mx-auto max-w-xs text-xs text-muted-foreground">{t('pay.signHint')}</p>
       </CardHeader>
       <CardContent className="space-y-3">
+        {inv && invoiceUnits !== null ? (
+          <div className="space-y-1 rounded-xl border p-4">
+            <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+              <ReceiptTextIcon className="size-3.5" />
+              {t('invoice.label')}
+              {inv.reference && <span className="normal-case">· #{inv.reference}</span>}
+            </p>
+            <p className="font-medium">{inv.memo}</p>
+            <p className="text-3xl font-semibold tracking-tight tabular-nums">{formatInvoiceAmount(inv, locale)}</p>
+            {inv.currency === 'IDR' && (
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {t('invoice.converted', {
+                  amount: formatMoney(invoiceUnits, 'usdt', rates, locale),
+                  rate: new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(invoiceRate),
+                })}
+              </p>
+            )}
+          </div>
+        ) : (
+          <>
         <div className="relative">
           <TokenIcon
             token="usdt"
@@ -193,6 +277,8 @@ function PayCard({ recipient }: { recipient: string }) {
             </Button>
           ))}
         </div>
+          </>
+        )}
         {splitPct !== null && (
           <p className="rounded-xl bg-primary/5 px-3 py-2 text-sm text-primary-ink">
             {t('pay.splitInfo', { pct: splitPct })}
@@ -226,7 +312,7 @@ function PayCard({ recipient }: { recipient: string }) {
               size="lg"
               className="w-full"
               onClick={() => void handlePay()}
-              disabled={anyBusy || value.trim() === ''}
+              disabled={anyBusy || (invoiceUnits === null && value.trim() === '')}
             >
               {busy === 'paylink' ? `${t('common.loading')}...` : t('pay.button')}
             </Button>
@@ -249,14 +335,14 @@ function PayCard({ recipient }: { recipient: string }) {
   )
 }
 
-function InvalidLink() {
+function InvalidLink({ body }: { body?: string }) {
   const t = useT()
 
   return (
     <Card className="w-full max-w-md rounded-2xl shadow-none backdrop-blur-sm bg-card/80">
       <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
         <p className="text-xl font-semibold tracking-tight">{t('pay.invalidTitle')}</p>
-        <p className="text-sm text-muted-foreground">{t('errors.invalidPayAddress')}</p>
+        <p className="text-sm text-muted-foreground">{body ?? t('errors.invalidPayAddress')}</p>
         <Button asChild className="mt-3">
           <Link to="/">{t('pay.goHome')}</Link>
         </Button>
@@ -280,7 +366,8 @@ export function PayPage() {
         style={{ backgroundImage: 'url(/assets/section1-bg.png)' }}
       />
       <div className="pointer-events-none fixed inset-0 z-0 bg-black/30" />
-      <div className="no-scrollbar relative z-10 flex h-full flex-col overflow-y-auto">
+      {/* data-lenis-prevent: the app's Lenis smooth scroll drives the (locked) window and would swallow the wheel here */}
+      <div data-lenis-prevent className="no-scrollbar relative z-10 flex h-full flex-col overflow-y-auto">
         <header className="flex items-center justify-between px-6 py-4">
           <Link to="/">
             <LogoWordmark />
