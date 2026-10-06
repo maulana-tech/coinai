@@ -3,29 +3,23 @@ import { Link } from 'react-router-dom'
 import { ArrowRightIcon, BotIcon, Loader2Icon, LockIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityList } from '@/components/activity-list'
+import { DecisionCard } from '@/components/decision-card'
+import { EvaluationCard } from '@/components/evaluation-card'
 import { ConnectPrompt } from '@/components/connect-prompt'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
-import { agentApi, hasAgentSession, isAgentActive, type AgentRun, type InvestorProfile, type MarketAnalysis } from '@/lib/agent-api'
+import { agentApi, hasAgentSession, isAgentActive, runFailure, type AgentRun, type InvestorProfile, type MarketAnalysis } from '@/lib/agent-api'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
 import { AGENT_ADDRESS } from '@/lib/config'
-import { formatDate, formatDateTime, formatMoney, useT, type MessageKey } from '@/lib/i18n'
+import { formatDate, formatMoney, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
-import { YIELD_TARGETS, type AgentPolicy, type YieldTarget } from '@/lib/types'
+import { YIELD_TARGETS, type AgentPolicy } from '@/lib/types'
 import { useYieldData } from '@/lib/use-yield-data'
-import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
-import { VAULT_LOGO } from '@/lib/yield'
 
-const VAULT_NAME: Record<YieldTarget, MessageKey> = {
-  conservative: 'yield.sourceConservativeName',
-  balanced: 'yield.sourceBalancedName',
-  growth: 'yield.sourceGrowthName',
-}
 const REGIME: Record<MarketAnalysis['regime'], MessageKey> = {
   risk_on: 'market.regimeRiskOn',
   neutral: 'market.regimeNeutral',
@@ -33,14 +27,6 @@ const REGIME: Record<MarketAnalysis['regime'], MessageKey> = {
 }
 const MIN_INVEST = 1_000_000n // mirrors the backend: under 1 tUSDT the agent doesn't invest
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
-
-function Bar({ pct, muted }: { pct: number; muted?: boolean }) {
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-muted">
-      <div className={cn('h-full rounded-full', muted ? 'bg-gold' : 'bg-primary')} style={{ width: `${Math.min(100, pct)}%` }} />
-    </div>
-  )
-}
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
@@ -56,7 +42,7 @@ function Portfolio({ address }: { address: string }) {
   const t = useT()
   const { locale, primaryCurrency } = useSettings()
   const { account, activity, activityLoading, rates, refresh } = useAppState()
-  const { vaults, loading: vaultsLoading, refresh: refreshVaults } = useYieldData(address)
+  const { vaults, refresh: refreshVaults } = useYieldData(address)
   const [policy, setPolicy] = useState<AgentPolicy | null>(null)
   const [runs, setRuns] = useState<AgentRun[] | null>(null)
   const [profile, setProfile] = useState<InvestorProfile | null>(null)
@@ -87,7 +73,6 @@ function Portfolio({ address }: { address: string }) {
   const agentOn = isAgentActive(policy)
   const plan = runs?.find((r) => r.allocation) ?? null
   const reason = plan?.steps.find((s) => s.agent === 'investment' && s.proposal)?.proposal?.reason
-  const buffer = plan?.allocation ? Math.max(0, 100 - YIELD_TARGETS.reduce((s, k) => s + plan.allocation![k], 0)) : 0
   const investHistory = activity.filter((i) => i.kind === 'agent' && i.agentAction === 'invest')
 
   const apply = async () => {
@@ -97,7 +82,9 @@ function Portfolio({ address }: { address: string }) {
       setRuns((r) => [run, ...(r ?? [])])
       void refresh()
       void refreshVaults()
-      toast.success(t('portfolio.applied', { n: run.executed.length }))
+      const failure = runFailure(run)
+      if (failure) toast.error(t(`agent.llm_${failure}` as MessageKey), { description: t('agent.llmNothingChanged') })
+      else toast.success(t('portfolio.applied', { n: run.executed.length }))
     } catch (e) {
       toast.error(t('agent.runFailed'), { description: errorText(e) })
     } finally {
@@ -164,63 +151,7 @@ function Portfolio({ address }: { address: string }) {
       </Card>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Plan vs position */}
-        <Card className="rounded-2xl shadow-none">
-          <CardHeader>
-            <CardTitle>{t('portfolio.planTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {!vaults && vaultsLoading ? (
-              <Skeleton className="h-40 w-full" />
-            ) : !vaults ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">{t('yield.targetUnavailable')}</p>
-                <Button variant="outline" size="sm" onClick={() => void refreshVaults()}>
-                  {t('common.retry')}
-                </Button>
-              </div>
-            ) : (
-              <>
-                {YIELD_TARGETS.map((k) => {
-                  const actual = invested > 0n ? Number((vaults[k].position * 10_000n) / invested) / 100 : 0
-                  const target = plan?.allocation?.[k]
-                  return (
-                    <div key={k} className="space-y-2">
-                      <div className="flex items-center gap-2.5 text-sm">
-                        <img src={VAULT_LOGO[k]} alt="" className="size-6 rounded-full" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-medium">{t(VAULT_NAME[k])}</span>
-                          <span className="block text-xs text-muted-foreground">{t('yield.apyValue', { apy: `${Math.round(vaults[k].apy * 100)}%` })}</span>
-                        </span>
-                        <span className="font-medium tabular-nums">{money(vaults[k].position)}</span>
-                      </div>
-                      <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2 text-xs">
-                        <span className="text-muted-foreground">{t('portfolio.planLabel')}</span>
-                        <Bar pct={target ?? 0} muted />
-                        <span className="text-right tabular-nums">{target === undefined ? '-' : `${target}%`}</span>
-                        <span className="text-muted-foreground">{t('portfolio.actualLabel')}</span>
-                        <Bar pct={actual} />
-                        <span className="text-right tabular-nums">{actual.toFixed(0)}%</span>
-                      </div>
-                    </div>
-                  )
-                })}
-                <p className="border-t pt-4 text-xs text-muted-foreground">
-                  {plan
-                    ? t('portfolio.planMeta', { time: formatDateTime(new Date(plan.at), locale), buffer })
-                    : runs === null
-                      ? t('portfolio.planHidden')
-                      : t('portfolio.planEmpty')}
-                </p>
-                {runs === null && (
-                  <Button variant="outline" size="sm" onClick={() => void loadPlan()}>
-                    {t('portfolio.loadPlan')}
-                  </Button>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <DecisionCard runs={runs} vaults={vaults} onLoad={() => void loadPlan()} />
 
         {/* Why */}
         <Card className="flex flex-col rounded-2xl shadow-none">
@@ -277,6 +208,8 @@ function Portfolio({ address }: { address: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <EvaluationCard />
 
       {/* History */}
       <Card className="rounded-2xl shadow-none">
