@@ -11,6 +11,7 @@ export type ActivityItem = {
     | 'faucet'
     | 'wd_spend'
     | 'wd_save'
+    | 'wd_vault'
     | 'invest'
     | 'split'
     | 'lock'
@@ -56,6 +57,9 @@ const SAVE_EVM_ABI = [
   'event AgentRevoked(address indexed user)',
   // tUSDT faucet mints (Transfer from the zero address), read from the token contract
   'event Transfer(address indexed from,address indexed to,uint256 value)',
+  // the user taking a position out of one of the three vaults (SimpleVault, ERC-4626)
+  'event Withdraw(address indexed caller,address indexed receiver,address indexed owner,uint256 assets,uint256 shares)',
+  'function vaultOf(uint8 target) view returns (address)',
 ] as const
 
 // Public BSC RPCs cap eth_getLogs ranges (publicnode: 50k blocks), so history is read newest-first
@@ -76,7 +80,7 @@ async function getBlockTimestamp(provider: JsonRpcProvider, blockNumber: number)
   return ts
 }
 
-function decodeLogs(logs: EventLog[], user: string): ActivityItem[] {
+function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTarget>): ActivityItem[] {
   const userLc = user.toLowerCase()
   const out: ActivityItem[] = []
   const seen = new Set<string>()
@@ -123,6 +127,8 @@ function decodeLogs(logs: EventLog[], user: string): ActivityItem[] {
         shares: BigInt(log.args.shares),
         amount: BigInt(log.args.amountOut),
       })
+    } else if (name === 'Withdraw') {
+      out.push({ ...base, kind: 'wd_vault', amount: BigInt(log.args.assets), target: vaults.get(log.address.toLowerCase()) })
     } else if (name === 'SplitSet') {
       out.push({ ...base, kind: 'split', bps: Number(log.args.bps) })
     } else if (name === 'LockSet') {
@@ -164,7 +170,11 @@ async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
   const provider = logsProvider
   const c = new Contract(CONTRACT_ID, SAVE_EVM_ABI, provider)
 
-  const latest = await provider.getBlockNumber()
+  const [latest, vaultAddresses] = await Promise.all([
+    provider.getBlockNumber(),
+    Promise.all(YIELD_TARGETS.map((_, i) => c.vaultOf(i) as Promise<string>)),
+  ])
+  const vaults = new Map(vaultAddresses.map((a, i) => [a.toLowerCase(), YIELD_TARGETS[i]]))
   const floor = Math.max(DEPLOY_BLOCK, latest - CHUNK * MAX_CHUNKS, 0)
 
   // PaymentRouted indexes the payer as topic1 and the recipient as topic2; every other event
@@ -187,6 +197,7 @@ async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
     provider.getLogs({ address: CONTRACT_ID, fromBlock, toBlock, topics: [topic('PaymentRouted'), null, userTopic] }),
     provider.getLogs({ address: CONTRACT_ID, fromBlock, toBlock, topics: [own, userTopic] }),
     provider.getLogs({ address: TOKEN_ADDRESS, fromBlock, toBlock, topics: [topic('Transfer'), ZeroHash, userTopic] }),
+    provider.getLogs({ address: vaultAddresses, fromBlock, toBlock, topics: [topic('Withdraw'), null, null, userTopic] }),
   ]
 
   const ranges: [number, number][] = []
@@ -207,7 +218,7 @@ async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
   await Promise.all(uniqueBlocks.map((b) => getBlockTimestamp(provider, b)))
 
   // Decode using cached timestamps (no extra RPC calls needed)
-  const decoded = decodeLogs(parsedLogs, user)
+  const decoded = decodeLogs(parsedLogs, user, vaults)
 
   return [...decoded, ...(await fetchRuns(user))].sort((a, b) => b.at.getTime() - a.at.getTime())
 }
