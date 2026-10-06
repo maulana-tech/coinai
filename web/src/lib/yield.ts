@@ -104,9 +104,11 @@ function replaySavingsBasis(activity: ActivityItem[]): SavingsHistoryPoint[] {
       runningShares += item.saved
       basis += item.saved
       points.push({ at: item.at, principal: basis })
-    } else if (item.kind === 'wd_save' && item.shares !== undefined) {
-      if (runningShares > 0n) basis -= (basis * item.shares) / runningShares
-      runningShares -= item.shares
+    } else if ((item.kind === 'wd_save' && item.shares !== undefined) || (item.kind === 'wd_vault' && item.amount !== undefined)) {
+      // idle savings leave 1:1; a vault withdrawal counts its tUSDT (incl. earnings) against the same basis
+      const out = item.kind === 'wd_save' ? item.shares! : item.amount!
+      if (runningShares > 0n) basis -= (basis * (out > runningShares ? runningShares : out)) / runningShares
+      runningShares -= out
       if (runningShares < 0n) runningShares = 0n
       points.push({ at: item.at, principal: basis })
     }
