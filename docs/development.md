@@ -64,6 +64,10 @@ Without OpenRouter/Upstash keys the Agent page still renders; runs and chat retu
 | `cd web && npm run build` | Typecheck `src/` + `api/` (`tsc -b`) and build |
 | `cd web && npm run lint` | oxlint |
 | `cd web && node --test api/_lib/guard.test.ts` | Guardrail unit tests |
+| `cd web && node --test api/_lib/decision.test.ts` | Reference mix, tilt bound, confidence gate |
+| `cd web && npx tsx --test api/_lib/evaluation.test.ts` | Replay engine: regime rule, split rule, mix rule |
+| `cd web && npx tsx --test api/_lib/llm.test.ts` | LLM failure classification |
+| `cd web && npx tsx scripts/evaluate-agents.ts` | Agent vs fixed rule over real prices (+ live-model spot check with an OpenRouter key; `--no-llm` to skip) |
 | `./push.sh "message"` | Commit one file per commit and push |
 
 ## Gotchas
