@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { WagmiProvider } from 'wagmi'
 import { AppShell } from '@/components/app-shell'
 import { NotFoundContent } from '@/components/not-found-content'
@@ -17,6 +17,9 @@ import { PortfolioPage } from '@/pages/portfolio'
 import { MarketPage } from '@/pages/market'
 import { Dashboard } from '@/pages/dashboard'
 import { FaucetPage } from '@/pages/faucet'
+import { GroupPage } from '@/pages/group'
+import { NewGroupPage } from '@/pages/group-new'
+import { GroupsPage } from '@/pages/groups'
 import { Landing } from '@/pages/landing'
 import { NotFoundPage } from '@/pages/not-found'
 import { PayPage } from '@/pages/pay'
@@ -43,6 +46,11 @@ function usePrefersReducedMotion(): boolean {
   return reduced
 }
 
+function LegacyGroupRedirect() {
+  const { id = '' } = useParams()
+  return <Navigate to={`/groups/${id}`} replace />
+}
+
 export function App() {
   const reducedMotion = usePrefersReducedMotion()
   return (
@@ -61,6 +69,11 @@ export function App() {
                   <Routes>
                     <Route path="/" element={<Landing />} />
                     <Route path="/pay/:address" element={<PayPage />} />
+                    {/* Group pages stand alone like /pay; /g/:id is the short link people share */}
+                    <Route path="/groups" element={<GroupsPage />} />
+                    <Route path="/groups/new" element={<NewGroupPage />} />
+                    <Route path="/groups/:id" element={<GroupPage />} />
+                    <Route path="/g/:id" element={<GroupPage />} />
                     <Route path="/app" element={<AppShell />}>
                       <Route index element={<Dashboard />} />
                       <Route path="activity" element={<ActivityPage />} />
@@ -74,6 +87,9 @@ export function App() {
                       <Route path="withdraw" element={<WithdrawPage />} />
                       <Route path="rules" element={<RulesPage />} />
                       <Route path="link" element={<PaymentLinkPage />} />
+                      <Route path="groups" element={<Navigate to="/groups" replace />} />
+                      <Route path="groups/new" element={<Navigate to="/groups/new" replace />} />
+                      <Route path="groups/:id" element={<LegacyGroupRedirect />} />
                       <Route path="settings" element={<SettingsPage />} />
                       <Route path="*" element={<NotFoundContent />} />
                     </Route>
