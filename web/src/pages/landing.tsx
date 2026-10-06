@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { motion } from 'motion/react'
 import { ArrowRightIcon, PlusIcon } from 'lucide-react'
 import { LogoMark } from '@/components/brand/logo'
+import { Council } from '@/components/landing/council'
+import { Reveal, Star, Title } from '@/components/landing/kit'
+import { mono, RAIL } from '@/components/landing/styles'
 import { EXPLORER_CONTRACT_URL } from '@/lib/config'
 import { useT, type MessageKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -10,27 +12,18 @@ import { cn } from '@/lib/utils'
 // Editorial, film-led landing: a fixed hairline frame (top bar + left rail with ✦ marks),
 // full-bleed painted loops behind oversized light serif type, mono micro-labels.
 
-const RAIL = 'md:pl-[80px]' // content starts right of the rail
-const SECTIONS: { id: string; label: MessageKey }[] = [
+// quiet: the section has its own index, so the rail shows only its tick (the label would sit on its cards)
+const SECTIONS: { id: string; label: MessageKey; quiet?: boolean }[] = [
   { id: 'model', label: 'lp.navModel' },
   { id: 'agents', label: 'lp.navAgents' },
+  { id: 'team', label: 'lp.navTeam', quiet: true },
   { id: 'terms', label: 'lp.navTerms' },
   { id: 'questions', label: 'lp.navQuestions' },
 ]
 
-const mono = 'font-mono text-[10px] font-bold uppercase tracking-[0.24em]'
-
 function usePrefersReducedMotion() {
   const [reduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
   return reduced
-}
-
-function Star({ className }: { className?: string }) {
-  return (
-    <span aria-hidden="true" className={cn('pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-[13px] leading-none text-white/80', className)}>
-      ✦
-    </span>
-  )
 }
 
 function CtaButton({ children, className }: { children: ReactNode; className?: string }) {
@@ -74,30 +67,6 @@ function Film({ name, dim = 'from-black/70 via-black/30' }: { name: string; dim?
   )
 }
 
-function Reveal({ children, className, delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
-  return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, y: 24 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-15% 0px' }}
-      transition={{ duration: 0.9, delay, ease: [0.22, 1, 0.36, 1] }}
-    >
-      {children}
-    </motion.div>
-  )
-}
-
-function Title({ k, className }: { k: MessageKey; className?: string }) {
-  const t = useT()
-  return (
-    // leading last: tailwind-merge drops it when className overrides the font size
-    <h2 className={cn('font-serif text-[clamp(2.75rem,7vw,6.25rem)] font-light tracking-[-0.02em] whitespace-pre-line', className, 'leading-[0.95]')}>
-      {t(k)}
-    </h2>
-  )
-}
-
 // ─── Frame: top bar + left rail with section index ──────────────────────────
 
 function Frame() {
@@ -134,7 +103,7 @@ function Frame() {
             <li key={s.id}>
               <a href={`#${s.id}`} className="pointer-events-auto flex items-center gap-2.5 py-0.5">
                 <span className={cn('h-px bg-white/60 transition-all duration-500', active === s.id ? 'w-4' : 'w-2')} />
-                <span className={cn(mono, 'whitespace-nowrap text-white transition-opacity duration-500', active === s.id ? 'opacity-90' : 'opacity-0')}>
+                <span className={cn(mono, 'whitespace-nowrap text-white transition-opacity duration-500', active === s.id && !s.quiet ? 'opacity-90' : 'opacity-0')}>
                   {t(s.label)}
                 </span>
               </a>
@@ -222,42 +191,6 @@ function Terms() {
   )
 }
 
-const TEAM: { name: MessageKey; role: MessageKey }[] = [
-  { name: 'agent.roleMarket', role: 'lp.teamMarket' },
-  { name: 'agent.roleSavings', role: 'lp.team1' },
-  { name: 'agent.roleInvestment', role: 'lp.team2' },
-  { name: 'agent.roleGuard', role: 'lp.team3' },
-  { name: 'agent.roleRisk', role: 'lp.team4' },
-  { name: 'agent.roleReporter', role: 'lp.team5' },
-]
-
-function Team() {
-  const t = useT()
-  return (
-    <section className={cn('relative bg-[#f1ece2] text-[#141414]', RAIL)}>
-      <div className="relative grid gap-12 border-t border-black/15 px-6 py-20 md:grid-cols-[1fr_1.2fr] md:px-10 md:py-28 lg:px-14">
-        <Reveal>
-          <p className={cn(mono, 'mb-6 text-black/45')}>{t('lp.teamTag')}</p>
-          <Title k="lp.teamTitle" className="text-[clamp(2.5rem,5.5vw,4.75rem)]" />
-        </Reveal>
-        <ol className="self-end">
-          {TEAM.map((m, i) => (
-            <Reveal key={m.name} delay={i * 0.06}>
-              <li className="grid grid-cols-[3rem_1fr] items-baseline gap-4 border-t border-black/15 py-5">
-                <span className={cn(mono, 'text-black/45')}>0{i + 1}</span>
-                <div>
-                  <p className="font-serif text-2xl font-normal">{t(m.name)}</p>
-                  <p className="mt-1 text-[15px] leading-relaxed text-black/65">{t(m.role)}</p>
-                </div>
-              </li>
-            </Reveal>
-          ))}
-        </ol>
-      </div>
-    </section>
-  )
-}
-
 const FAQ: { q: MessageKey; a: MessageKey }[] = [1, 2, 3, 4, 5].map((n) => ({
   q: `lp.faq${n}Q` as MessageKey,
   a: `lp.faq${n}A` as MessageKey,
@@ -325,7 +258,7 @@ export function Landing() {
         <Hero />
         <FilmChapter id="model" film="save" tag="lp.modelTag" title="lp.modelTitle" body="lp.modelBody" />
         <FilmChapter id="agents" film="agents" tag="lp.agentsTag" title="lp.agentsTitle" body="lp.agentsBody" />
-        <Team />
+        <Council />
         <Terms />
         <Questions />
       </main>
