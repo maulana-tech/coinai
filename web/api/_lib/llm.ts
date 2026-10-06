@@ -51,13 +51,35 @@ function keyPool(): string[] {
   return live.length ? live : all
 }
 
-class LlmError extends Error {
+export class LlmError extends Error {
   keyProblem: boolean
-  constructor(message: string, keyProblem: boolean) {
+  status: number
+  constructor(message: string, keyProblem: boolean, status: number) {
     super(message)
     this.keyProblem = keyProblem
+    this.status = status
   }
 }
+
+/** Why an LLM call failed, in words the app can show the user (localized as agent.llm_<code>). */
+export type LlmFailure = 'no_credit' | 'rate_limited' | 'bad_key' | 'timeout' | 'unavailable' | 'bad_output'
+
+export function llmFailure(e: unknown): LlmFailure {
+  if (e instanceof LlmError) {
+    if (e.status === 401) return 'bad_key'
+    if (e.status === 402 || e.status === 403) return 'no_credit'
+    if (e.status === 429) return 'rate_limited'
+    return 'unavailable'
+  }
+  const name = (e as Error | undefined)?.name
+  if (name === 'TimeoutError' || name === 'AbortError') return 'timeout'
+  if (e instanceof SyntaxError || /no JSON/.test(String((e as Error | undefined)?.message))) return 'bad_output'
+  return 'unavailable'
+}
+
+// The Risk Officer is meant to be an independent check; the same model reviewing its own proposals isn't.
+if (process.env.OPENROUTER_MODEL && modelFor('risk') === modelFor('strategist'))
+  console.warn(`llm: the Risk Officer uses the strategists' model (${modelFor('risk')}); set OPENROUTER_MODEL_RISK to a different one.`)
 
 async function completeWith(
   model: string,
@@ -88,7 +110,7 @@ async function completeWith(
   if (!res.ok || body?.error || !msg) {
     const status = Number(body?.error?.code ?? res.status)
     // 401 bad key, 402 no credits, 403 key limit, 429 rate/daily limit: another key may still work.
-    throw new LlmError(`openrouter ${model} ${status}: ${body?.error?.message ?? 'no message'}`, [401, 402, 403, 429].includes(status))
+    throw new LlmError(`openrouter ${model} ${status}: ${body?.error?.message ?? 'no message'}`, [401, 402, 403, 429].includes(status), status)
   }
   return { role: 'assistant', content: msg.content ?? null, tool_calls: msg.tool_calls }
 }
