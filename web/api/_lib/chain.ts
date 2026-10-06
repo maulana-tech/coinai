@@ -1,4 +1,4 @@
-import { Contract, Wallet, formatUnits, getAddress } from 'ethers'
+import { Contract, Interface, Wallet, formatUnits, getAddress } from 'ethers'
 import { DEPLOYMENT } from '../../shared/deployment.js'
 import { CALL_RPC, rpcProvider } from '../../shared/rpc.js'
 import { TARGETS, type Policy, type Proposal, type Target } from './guard.js'
@@ -24,6 +24,35 @@ const VAULT_ABI = [
   'function convertToAssets(uint256) view returns (uint256)',
 ]
 
+export const PAYMENT_ROUTED = new Interface([
+  'event PaymentRouted(address indexed from,address indexed to,uint256 amount,uint256 spendAmount,uint256 savingsAmount,uint8 yieldTarget)',
+])
+
+export type Payment = { txHash: string; from: string; to: string; amount: bigint; saved: bigint; at: number }
+
+/** The first PaymentRouted log emitted by `coinai` among a receipt's logs (logs from other contracts are ignored). */
+export function paymentFromLogs(logs: readonly { address: string; topics: readonly string[]; data: string }[], coinai: string) {
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== coinai.toLowerCase()) continue
+    const parsed = PAYMENT_ROUTED.parseLog({ topics: [...log.topics], data: log.data })
+    if (parsed)
+      return { from: getAddress(parsed.args.from), to: getAddress(parsed.args.to), amount: BigInt(parsed.args.amount), saved: BigInt(parsed.args.savingsAmount) }
+  }
+  return null
+}
+
+/** The CoinAI payment inside a mined, successful tx, or null: lets public endpoints trust a tx hash a browser sends. */
+export async function paymentFromTx(txHash: string): Promise<Payment | null> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return null
+  const p = provider()
+  const receipt = await p.getTransactionReceipt(txHash)
+  if (!receipt || receipt.status !== 1) return null
+  const found = paymentFromLogs(receipt.logs, coinaiAddress())
+  if (!found) return null
+  const block = await p.getBlock(receipt.blockNumber)
+  return { txHash, ...found, at: Number(block?.timestamp ?? Math.floor(Date.now() / 1000)) }
+}
+
 export function env(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`missing env ${name}`)
@@ -31,6 +60,8 @@ export function env(name: string): string {
 }
 
 const provider = () => rpcProvider(process.env.BSC_RPC_URL || CALL_RPC)
+/** Read-only BSC Testnet provider (BSC_RPC_URL or the BNB Chain RPC). */
+export const chainProvider = provider
 const coinaiAddress = () => process.env.COINAI_ADDRESS || process.env.VITE_COINAI_ADDRESS || DEPLOYMENT.coinai
 export const agentWallet = () => new Wallet(env('AGENT_PRIVATE_KEY'), provider())
 export const explorerTx = (hash: string) => `https://testnet.bscscan.com/tx/${hash}`
