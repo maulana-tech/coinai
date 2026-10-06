@@ -2,21 +2,24 @@
 // predictable and auditable:
 //
 //   market ─ Market Analyst ─┐
-//   state ─┬─ Savings Strategist ───────┐
-//          └─ Investment Strategist ────┴─ guard (code) ─ Risk Officer (veto only) ─ executor ─ Reporter
+//   state + recent runs ─┬─ Savings Strategist ───────┐
+//                        └─ Investment Strategist ────┴─ confidence gate + guard (code) ─ Risk Officer (veto only) ─ executor ─ Reporter
 //
 // Strategists can only propose; the Risk Officer can only veto; the guard and the
-// contract both enforce the user's on-chain limits. Missing/invalid reviews fail closed.
+// contract both enforce the user's on-chain limits. The investment mix is bounded around a
+// reference (saved pool or profile) in code. Missing/invalid reviews and confidences fail closed.
 
+import type { VaultMix } from '../../shared/pool.js'
 import { fetchMarket, type MarketSnapshot } from '../../shared/market.js'
 import { describe, dripYield, execute, explorerTx, fmt, readUserState, type UserState } from './chain.js'
+import { confidenceGate, fitAllocation, MAX_TILT, MIN_CONFIDENCE, readConfidence, referenceMix, type Reference } from './decision.js'
 import { checkProposal, policyActive, TARGETS, type Proposal, type Target } from './guard.js'
-import { askJson, complete, withUserKeys } from './llm.js'
+import { askJson, complete, llmFailure, withUserKeys, type LlmFailure } from './llm.js'
 import { kv } from './kv.js'
 import { activeStrategy, type Strategy } from './pools.js'
 
 export type Locale = 'en' | 'id' | 'zh'
-const LANGUAGE: Record<Locale, string> = { en: 'English', id: 'Bahasa Indonesia', zh: 'Simplified Chinese' }
+export const LANGUAGE: Record<Locale, string> = { en: 'English', id: 'Bahasa Indonesia', zh: 'Simplified Chinese' }
 export const asLocale = (x: unknown): Locale => (x === 'id' || x === 'zh' ? x : 'en')
 
 const MIN_INVEST = 1_000_000n // 1 tUSDT; below this, investing isn't worth the gas
@@ -28,6 +31,7 @@ export type Step = {
   proposal?: { kind: Proposal['kind']; bps?: number; amount?: string; target?: Target; reason: string }
   outcome: 'analyzed' | 'proposed' | 'skipped' | 'rejected' | 'approved' | 'executed' | 'failed'
   note?: string
+  code?: LlmFailure // set when an LLM call failed, so the app can say why in plain words
   txHash?: string
 }
 
@@ -47,6 +51,21 @@ export type MarketAnalysis = {
 
 export type Allocation = Record<Target, number> // percent of idle savings to invest now, per vault
 
+/** How the agents arrived at this run's numbers; shown as the "why this mix" table in the app. */
+export type Decision = {
+  reference: Reference // the mix the strategist starts from: saved pool or investor profile
+  mix: VaultMix | null // final share of the invested amount per vault (sum 100), after the tilt bound
+  investPercent: number // share of idle savings invested this run; the rest stays as a buffer
+  clamped: boolean // the strategist went past reference ± maxTilt and code pulled it back
+  maxTilt: number
+  minConfidence: number
+  confidence: { savings: number | null; investment: number | null }
+  split: { from: number; to: number | null } // savings split percent before, and as proposed (null = no change)
+  skipped: { savings?: string; investment?: string } // confidence-gate reason when a proposal was not executed
+  spendable: number // spendable balance (tUSDT) when the run started; the next runs compare against it
+  previous: { at: string; mix: VaultMix | null; splitPercent: number | null } | null
+}
+
 export type RunResult = {
   user: string
   at: string
@@ -55,6 +74,7 @@ export type RunResult = {
   market: MarketAnalysis | null
   allocation: Allocation | null
   strategy: Strategy | null // the saved pool the user made the agents' benchmark, if any
+  decision: Decision | null // agent mode only
   steps: Step[]
   executed: { kind: Proposal['kind']; reason: string; txHash: string; explorer: string }[]
   reminders: string[]
@@ -127,51 +147,78 @@ JSON shape: {"regime":"risk_on"|"neutral"|"risk_off","confidence":0..1,"summary"
 
 // ─── Strategists ─────────────────────────────────────────────────────────────
 
-type SplitIdea = { action: 'set_split' | 'none'; percent?: number; reason?: string; confidence?: number }
-type InvestIdea = { action: 'invest' | 'none'; allocation?: Partial<Allocation>; reason?: string; confidence?: number }
+export type SplitIdea = { action: 'set_split' | 'none'; percent?: number; reason?: string; confidence?: number }
+export type InvestIdea = { action: 'invest' | 'none'; allocation?: Partial<Allocation>; reason?: string; confidence?: number }
 
-async function savingsStrategist(view: object, profile: Profile, lang: string, instruction?: string): Promise<SplitIdea> {
+/** What every LLM role in one run sees besides its own instructions. */
+export type Context = {
+  view: object
+  profile: Profile
+  market: MarketAnalysis | null
+  strategy: Strategy | null
+  reference: Reference
+  recent: RecentRun[]
+  lang: string
+  instruction?: string
+}
+
+const CONFIDENCE = `"confidence" is how well the data supports the move, 0..1. Be honest: thin or conflicting data means low confidence.
+Below ${MIN_CONFIDENCE} the move is skipped, not executed.`
+
+const MEMORY = `recentRuns are the team's last runs on this account, newest first. Don't reverse a move from those runs unless the data changed
+(new payments, a different market regime, a user instruction); when you change direction, say what changed. Don't repeat a move just made.`
+
+export async function savingsStrategist(c: Context): Promise<SplitIdea> {
   return askJson<SplitIdea>(
     'strategist',
     `${TEAM}
 Role: Savings Strategist. Decide the savings split percentage.
 - Stay within agentLimits. Prefer steps of at most 10 percentage points.
-- Regular, sizable income and healthy spendable balance -> saving more is reasonable.
-- Irregular income, long gap since last payment, or low spendable balance -> save less or hold.
+- Regular, sizable income and healthy spendable balance -> saving more is reasonable, but only if money from earlier
+  payments was still left when this one arrived: spendableBalance clearly above the spendable part of an average payment
+  (averagePayment x (100 - savingsSplitPercent)%), by a quarter of a payment or more. Less than that: don't raise.
+- Irregular income, a gap much longer than this person's usual rhythm, low spendable balance, or next to nothing left
+  over from earlier payments (they ran dry before this payday) -> save less.
+- Compare with recentRuns' spendableBalance: if what is left over keeps shrinking run after run, don't raise even if it
+  still looks comfortable, and save less once it is under a quarter of a payment. Judge gaps against their own rhythm: 30 days is normal for a monthly salary.
 - A concrete goal in the investor profile (e.g. a trip in December) justifies saving more.
 - With fewer than 2 payments there is too little data: choose "none" unless the user instruction says otherwise.
 - The user instruction, if any, takes priority when it stays within limits.
-Write "reason" in ${lang}.
+${MEMORY}
+${CONFIDENCE}
+Write "reason" in ${c.lang}.
 JSON shape: {"action":"set_split"|"none","percent":number,"reason":"<=200 chars, plain language, cite the data","confidence":0..1}`,
-    { state: view, investorProfile: profile, userInstruction: instruction ?? null },
+    { state: c.view, investorProfile: c.profile, recentRuns: c.recent, userInstruction: c.instruction ?? null },
   )
 }
 
-async function investmentStrategist(
-  view: object,
-  profile: Profile,
-  market: MarketAnalysis | null,
-  lang: string,
-  instruction?: string,
-  strategy?: Strategy | null,
-): Promise<InvestIdea> {
+export async function investmentStrategist(c: Context): Promise<InvestIdea> {
   return askJson<InvestIdea>(
     'strategist',
     `${TEAM}
 Role: Investment Strategist. Decide how much of the idle savings to invest now and how to split it across the three vaults.
-- Start from the investor profile: conservative -> mostly conservative vault; moderate -> mostly balanced;
-  aggressive -> meaningful growth share. Short horizon -> less risk; long horizon -> more.
+- Start from referenceMix (percent of the invested amount per vault). Its source is "strategy" when the user saved a pool
+  as the benchmark (userStrategy; calm assets -> conservative, core BTC/ETH/BNB/index ETFs -> balanced, other coins and
+  single stocks -> growth), or "profile" when it comes from the investor profile (risk level, shifted by horizon).
 - Tilt with the Market Analyst's regime: risk_off -> shift toward conservative; risk_on -> allow more growth.
-  If no market read is available, stay neutral.
-- Percentages are of the current idle savings; their sum must be <= 100 (keep a buffer if the user may need cash soon).
-- If userStrategy is set, it is the pool the user saved as the benchmark: aim for its vaultMix
-  (calm assets -> conservative, core BTC/ETH/BNB/index ETFs -> balanced, other coins and single stocks -> growth).
-  Deviate by at most 15 points per vault, and only to respect a risk_off market or a clear mismatch with the profile.
-  Mention the strategy by its name (e.g. "following your Pool 1 Aggressive"), never internal field names like userStrategy.
+  If no market read is available, stay at the reference.
+- Deviate at most ${MAX_TILT} points per vault from referenceMix; code pulls anything further back.
+- Allocation percentages are of the current idle savings; their sum must be <= 100 (keep a buffer if the user may need cash soon).
+- With a strategy, mention it by its name (e.g. "following your Pool 1 Aggressive"); never use internal field names.
 - The user instruction, if any, takes priority.
-Write "reason" in ${lang}.
-JSON shape: {"action":"invest"|"none","allocation":{"conservative":0-100,"balanced":0-100,"growth":0-100},"reason":"<=200 chars, cite profile and market","confidence":0..1}`,
-    { state: view, investorProfile: profile, marketAnalysis: market, userStrategy: strategy ?? null, userInstruction: instruction ?? null },
+${MEMORY}
+${CONFIDENCE}
+Write "reason" in ${c.lang}.
+JSON shape: {"action":"invest"|"none","allocation":{"conservative":0-100,"balanced":0-100,"growth":0-100},"reason":"<=200 chars, cite reference, profile and market","confidence":0..1}`,
+    {
+      state: c.view,
+      investorProfile: c.profile,
+      marketAnalysis: c.market,
+      referenceMix: { source: c.reference.source, ...c.reference.mix },
+      userStrategy: c.strategy,
+      recentRuns: c.recent,
+      userInstruction: c.instruction ?? null,
+    },
   )
 }
 
@@ -187,28 +234,30 @@ export function cleanAllocation(x: Partial<Allocation> | undefined): Allocation 
 
 type Review = { reviews?: { id?: string; approve?: boolean; note?: string }[] }
 
-async function riskOfficer(
-  view: object,
-  profile: Profile,
-  market: MarketAnalysis | null,
-  candidates: { id: string; proposal: object }[],
-  lang: string,
-  instruction?: string,
-  strategy?: Strategy | null,
-) {
+async function riskOfficer(c: Context, candidates: { id: string; proposal: object }[]) {
   const out = await askJson<Review>(
     'risk',
     `${TEAM}
 Role: Risk Officer. Review each proposal. You can approve or veto, never modify.
 Veto when the reason contradicts the data, the move is too aggressive for how little data exists or for the investor profile,
-it ignores a risk_off market read, it conflicts with the user instruction, or it leaves the user without a sensible buffer.
+it ignores a risk_off market read, it conflicts with the user instruction, it reverses a recent run without a change in the data
+(see recentRuns, newest first), or it leaves the user without a sensible buffer.
 Proposals with ids "invest:<vault>" are legs of ONE allocation that share a single reason: judge the allocation as a whole
 (a small conservative leg inside an aggressive allocation is diversification, not a contradiction), then approve or veto each leg.
-An allocation that follows the user's own saved strategy (userStrategy.vaultMix) reflects their explicit choice: approve it
+An allocation close to referenceMix with source "strategy" follows the user's own saved pool, their explicit choice: approve it
 unless the market read is risk_off and it ignores that, or it leaves no buffer.
-Write each "note" in ${lang}.
+Write each "note" in ${c.lang}.
 JSON shape: {"reviews":[{"id":"<proposal id>","approve":true|false,"note":"<=160 chars"}]}`,
-    { state: view, investorProfile: profile, marketAnalysis: market, userStrategy: strategy ?? null, userInstruction: instruction ?? null, proposals: candidates },
+    {
+      state: c.view,
+      investorProfile: c.profile,
+      marketAnalysis: c.market,
+      referenceMix: { source: c.reference.source, ...c.reference.mix },
+      userStrategy: c.strategy,
+      recentRuns: c.recent,
+      userInstruction: c.instruction ?? null,
+      proposals: candidates,
+    },
   )
   return new Map((out.reviews ?? []).map((r) => [r.id, r]))
 }
@@ -281,6 +330,52 @@ function cleanReason(x: unknown) {
 }
 const agentFor = (id: string): AgentName => (id === 'split' ? 'savings' : 'investment')
 
+// ─── Memory: what the team did on this account lately ───────────────────────
+
+const MEMORY_RUNS = 5
+
+/** Compact view of a past run for the prompts: what was decided, what landed, what was skipped and why. */
+export type RecentRun = {
+  hoursAgo: number
+  marketRegime: MarketAnalysis['regime'] | null
+  splitPercent: { from: number; to: number } | null
+  spendableBalance: number | null
+  investedMix: VaultMix | null
+  investPercent: number | null
+  executed: string[]
+  notDone: string[]
+}
+
+function toRecent(r: RunResult, now: number): RecentRun {
+  const d = r.decision
+  const executedSplit = r.steps.find((x) => x.agent === 'executor' && x.outcome === 'executed' && x.proposal?.kind === 'set_split')
+  return {
+    hoursAgo: Math.max(0, Math.round((now - Date.parse(r.at) / 1000) / 3600)),
+    marketRegime: r.market?.regime ?? null,
+    splitPercent: d && executedSplit?.proposal?.bps ? { from: d.split.from, to: executedSplit.proposal.bps / 100 } : null,
+    spendableBalance: d?.spendable ?? null,
+    investedMix: r.allocation ? (d?.mix ?? null) : null,
+    investPercent: r.allocation ? (d?.investPercent ?? null) : null,
+    executed: r.executed.map((e) => e.reason).slice(0, 4),
+    notDone: r.steps
+      .filter((x) => (x.outcome === 'rejected' || x.outcome === 'skipped') && x.note && x.agent !== 'market')
+      .map((x) => `${x.agent}: ${x.note}`.slice(0, 160))
+      .slice(0, 4),
+  }
+}
+
+/** The account's last agent-mode runs, newest first. */
+async function recentRuns(user: string): Promise<RunResult[]> {
+  const runs = await kv.list<RunResult>(`runs:${user}`, MEMORY_RUNS).catch(() => [])
+  return runs.filter((r) => r.mode === 'agent')
+}
+
+const MODELS_DOWN: Record<Locale, string> = {
+  en: 'The AI models were unavailable, so the team changed nothing. Your savings, split and limits are untouched.',
+  id: 'Model AI sedang tidak tersedia, jadi tim tidak mengubah apa pun. Tabungan, porsi, dan batasmu tetap aman.',
+  zh: 'AI 模型暂不可用，团队未做任何更改。你的储蓄、比例和限额均保持不变。',
+}
+
 const runningKey = (user: string) => `running:${user}`
 export const isRunning = async (user: string) => (await kv.get<number>(runningKey(user)).catch(() => null)) !== null
 
@@ -301,12 +396,18 @@ export async function runSwarm(
 
 async function runTeam(user: string, opts: { locale?: Locale; instruction?: string; reportOnly?: boolean }): Promise<RunResult> {
   const locale = opts.locale ?? 'en'
-  const [s, profile, strategy] = await Promise.all([readUserState(user), getProfile(user), activeStrategy(user).catch(() => null)])
+  const [s, profile, strategy, past] = await Promise.all([
+    readUserState(user),
+    getProfile(user),
+    activeStrategy(user).catch(() => null),
+    recentRuns(user),
+  ])
   const view = describe(s)
   const steps: Step[] = []
   const executed: RunResult['executed'] = []
   const active = policyActive(s) && !opts.reportOnly
   let allocation: Allocation | null = null
+  let decision: Decision | null = null
 
   // 0. Market read — shared and cached, so it's cheap even for report-only runs.
   let market: MarketAnalysis | null = null
@@ -314,31 +415,77 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
     market = await getMarketAnalysis()
     steps.push({ agent: 'market', outcome: 'analyzed', note: `${market.regime}: ${market.summary}` })
   } catch (e) {
-    steps.push({ agent: 'market', outcome: 'failed', note: (e as Error).message.slice(0, 200) })
+    steps.push({ agent: 'market', outcome: 'failed', note: (e as Error).message.slice(0, 200), code: llmFailure(e) })
   }
 
   if (active) {
+    const reference = referenceMix(profile, strategy)
+    const c: Context = {
+      view,
+      profile,
+      market,
+      strategy,
+      reference,
+      recent: past.map((r) => toRecent(r, s.now)),
+      lang: LANGUAGE[locale],
+      instruction: opts.instruction,
+    }
+    const last = past[0] ? toRecent(past[0], s.now) : null
+    const d: Decision = {
+      reference,
+      mix: null,
+      investPercent: 0,
+      clamped: false,
+      maxTilt: MAX_TILT,
+      minConfidence: MIN_CONFIDENCE,
+      confidence: { savings: null, investment: null },
+      split: { from: s.splitBps / 100, to: null },
+      spendable: Number(s.spend) / 1e6,
+      skipped: {},
+      previous: last && { at: past[0].at, mix: last.investedMix, splitPercent: last.splitPercent?.to ?? past[0].decision?.split.from ?? null },
+    }
+    decision = d
+
     // 1. Strategists in parallel. One failing doesn't sink the other.
     const [split, invest] = await Promise.allSettled([
-      savingsStrategist(view, profile, LANGUAGE[locale], opts.instruction),
+      savingsStrategist(c),
       s.savings >= MIN_INVEST
-        ? investmentStrategist(view, profile, market, LANGUAGE[locale], opts.instruction, strategy)
+        ? investmentStrategist(c)
         : Promise.resolve<InvestIdea>({ action: 'none', reason: 'idle savings below 1 tUSDT' }),
     ])
 
+    // Each idea passes the confidence gate first; a skipped idea is logged with what it would have done.
     const proposals: { id: string; p: Proposal }[] = []
-    if (split.status === 'rejected') steps.push({ agent: 'savings', outcome: 'failed', note: String(split.reason) })
+    if (split.status === 'rejected') steps.push({ agent: 'savings', outcome: 'failed', note: String(split.reason).slice(0, 200), code: llmFailure(split.reason) })
     else if (split.value.action === 'set_split') {
-      proposals.push({ id: 'split', p: { kind: 'set_split', bps: clampPct(split.value.percent) * 100, reason: cleanReason(split.value.reason) } })
+      const p: Proposal = { kind: 'set_split', bps: clampPct(split.value.percent) * 100, reason: cleanReason(split.value.reason) }
+      d.confidence.savings = readConfidence(split.value.confidence)
+      d.split.to = p.bps / 100
+      const gate = confidenceGate(d.confidence.savings)
+      if (gate) {
+        d.skipped.savings = gate
+        steps.push({ agent: 'savings', proposal: stepProposal(p), outcome: 'skipped', note: gate })
+      } else proposals.push({ id: 'split', p })
     } else steps.push({ agent: 'savings', outcome: 'skipped', note: cleanReason(split.value.reason) })
 
-    if (invest.status === 'rejected') steps.push({ agent: 'investment', outcome: 'failed', note: String(invest.reason) })
+    if (invest.status === 'rejected') steps.push({ agent: 'investment', outcome: 'failed', note: String(invest.reason).slice(0, 200), code: llmFailure(invest.reason) })
     else if (invest.value.action === 'invest') {
-      allocation = cleanAllocation(invest.value.allocation)
+      const fit = fitAllocation(cleanAllocation(invest.value.allocation), reference.mix)
+      d.mix = fit.investPercent > 0 ? fit.mix : null
+      d.investPercent = fit.investPercent
+      d.clamped = fit.clamped
+      d.confidence.investment = readConfidence(invest.value.confidence)
       const reason = cleanReason(invest.value.reason)
-      for (const target of TARGETS) {
-        const amount = (s.savings * BigInt(allocation[target])) / 100n
-        if (amount > 0n) proposals.push({ id: `invest:${target}`, p: { kind: 'invest', amount, target, reason } })
+      const gate = confidenceGate(d.confidence.investment)
+      if (gate) {
+        d.skipped.investment = gate
+        steps.push({ agent: 'investment', outcome: 'skipped', note: `${gate}: ${reason}`.slice(0, 280) })
+      } else {
+        allocation = fit.allocation
+        for (const target of TARGETS) {
+          const amount = (s.savings * BigInt(allocation[target])) / 100n
+          if (amount > 0n) proposals.push({ id: `invest:${target}`, p: { kind: 'invest', amount, target, reason } })
+        }
       }
     } else steps.push({ agent: 'investment', outcome: 'skipped', note: cleanReason(invest.value.reason) })
 
@@ -356,9 +503,9 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
     let reviews = new Map<string | undefined, { approve?: boolean; note?: string }>()
     if (passed.length) {
       try {
-        reviews = await riskOfficer(view, profile, market, passed.map(({ id, p }) => ({ id, proposal: stepProposal(p) })), LANGUAGE[locale], opts.instruction, strategy)
+        reviews = await riskOfficer(c, passed.map(({ id, p }) => ({ id, proposal: stepProposal(p) })))
       } catch (e) {
-        steps.push({ agent: 'risk', outcome: 'failed', note: `review unavailable: ${(e as Error).message}` })
+        steps.push({ agent: 'risk', outcome: 'failed', note: `review unavailable: ${(e as Error).message}`.slice(0, 200), code: llmFailure(e) })
       }
     }
 
@@ -390,11 +537,15 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
     market,
     allocation,
     strategy,
+    decision,
     steps,
     executed,
     reminders: reminders(after),
   }
-  const result: RunResult = { ...partial, report: await reporter(after, partial, locale).catch(() => partial.reminders.join('\n')) }
+  // If the models are down the Reporter is too: say so in code, so Telegram/email don't just list reminders.
+  const blocked = active && !executed.length && steps.some((x) => x.outcome === 'failed' && x.code)
+  const fallback = () => [blocked ? MODELS_DOWN[locale] : null, ...partial.reminders].filter(Boolean).join('\n')
+  const result: RunResult = { ...partial, report: await reporter(after, partial, locale).catch(fallback) }
   await kv.push(`runs:${s.user}`, result, 20).catch(() => {})
   return result
 }
