@@ -70,9 +70,20 @@ Design choices:
 
 Minimal ERC-4626 vault, deployed three times with `apyBps` / `riskLevel` metadata. Share price tracks the vault's token balance. On testnet the APY is metadata, so the backend runs a **yield simulator** (`dripYield` in `web/api/_lib/chain.ts`): the agent wallet tops each vault up with tUSDT in proportion to its APY and the time since the last drip (sped up `YIELD_SPEEDUP`×, default 30), on every agent run and the daily cron. Share price, and every depositor's position, really grows on-chain. On mainnet these slots would route into live strategies (Venus, Lista, PancakeSwap).
 
+Vault shares are minted to the user's own wallet, so the user takes a position back straight from the vault (`redeem` for all shares, `withdraw` for an amount) on the **Vault** tab of `/app/withdraw`; CoinAI isn't involved, and its savings lock only covers idle savings held in CoinAI. These withdrawals show in the activity feed from the vaults' `Withdraw` events.
+
 ### MockUSDT (`MockUSDT.sol`)
 
 6-decimal ERC-20 with a public `faucet()` (1,000 tUSDT per address per 24h).
+
+### coinAI v2 (`CoinAIV2.sol`, `BasketVault.sol`, `GroupFunds.sol`, `AgentRegistry.sol`)
+
+Deployed with `script/DeployV2.s.sol` (addresses in `deployments.json` → `bscTestnet.v2`), next to the same tUSDT and yield vaults. Tests: `forge test` (unit), `forge test --match-contract Fork --fork-url https://bsc-testnet-dataseed.bnbchain.org` (against the live feeds and vaults).
+
+- **CoinAIV2.** Same split and payments as v1 (plus `payMany`, ≤50 recipients). Savings stay inside the contract: idle tUSDT, vault shares held per user, and the user's basket, so the **savings lock covers every position** (v1 minted vault shares to the wallet, which let a locked user invest and redeem). Investing and moving between positions (`rebalance`) are allowed while locked; `withdrawPosition` isn't. Users authorize **up to 8 agents, each with its own skills**: `SPLIT` (split within the user's range), `INVEST` (invest idle savings, `agentRebalance` between the user's positions) and `PAY` (`agentContribute`: pay GroupFunds dues from the spendable balance, only into funds the user joined, within a budget per 30 days). Every way out pays the user; `contributeFromSpend` lets the user pay a fund from their spendable balance.
+- **BasketVault ("AI Smart Money").** A basket per saver of tUSDT, BNB, BTC, ETH and CAKE (Chainlink on BSC). The agent wallet is the curator: `setSmartWeights(weights, reason)` publishes a new mix with its reason; followers move to it at their next action or via `sync`, keeping value; savers may set their own mix instead. The contract enforces ≥10% tUSDT, ≤50% per coin and ≤20% CAKE on every mix. Buying needs a fresh price (≤1 day); selling works at the last price, so a lagging oracle never locks money in. Testnet has no liquidity for these coins: buys and sells are bookkeeping at the oracle price, gains are paid from a tUSDT reserve (300 at deploy), losses stay in the vault; mainnet would swap on PancakeSwap.
+- **GroupFunds.** *Patungan* (event/gift; organizer withdraws only once the target is met, refunds if the deadline passes short or it's cancelled), *Iuran* (dues per period; members join themselves, `duesOf` shows paid vs owed; a friend can `contributeFor` without making anyone a member) and *Donasi* (fundraising; withdrawals go to the fixed beneficiary with an on-chain memo). Contributions carry a message (≤140 bytes).
+- **AgentRegistry.** Operators list an agent wallet with skills and a fee per 30 days; `hire(id, periods)` pays the operator and records `rentedUntil`. It moves no savings: what a hired agent may do is what the hirer grants it in CoinAIV2. Listed at deploy: Athena (invest), Demeter (split), Hermes (pay, 1 tUSDT / 30 days), all served by the agent wallet.
 
 ### DepositRouter (`DepositRouter.sol`)
 
@@ -121,7 +132,18 @@ readUserState + profile ─┬─ Savings Strategist ─────┐
 | `/app/market` | Market board + pool simulator (90-day backtest, volatility range) + AI review of the pool |
 | `/app/yield` | Vault position, move savings into a vault, vault list |
 | `/app/rules` | Split, vault preference, time-lock |
+| `/groups` | Group funds hub, a standalone page like `/pay` (`GroupShell`: landing art, glass cards, no sidebar): 388 × 440 cards with the kind's art, progress and your status, filters by kind and mine / joined; empty states show 388 × 440 start-a-group panels |
+| `/groups/new` | Create in three steps in one card: kind (three readable cards in a row), details with a live card preview, review with what happens next. Footer sticks to the bottom on phones |
+| `/groups/:id`, `/g/:id` | Group page: summary + rules, the action for this user (join, pay N periods, chip in, refund; first under the summary on phones), members with paid-up status, on-chain feed with messages and memos, organizer payouts, and the **share card**: a ready-to-post image (feed 4:5 or story 9:16, `src/lib/share-card.ts`, drawn on a canvas in the app's type and art, with a QR to `/g/:id`) to download or send through the phone's share sheet, plus WhatsApp / X / Telegram / Facebook links. `/app/groups/*` redirects here |
 | `/app/withdraw`, `/app/activity`, `/app/link`, `/app/faucet`, `/app/settings` | — |
+
+## Invoices and receipts
+
+`/app/link` creates **invoices** (`api/invoices.ts`, `api/_lib/invoices.ts`): a fixed amount in rupiah or tUSDT, a memo and the merchant's reference, stored in Redis (`inv:<id>`, the merchant's last 50 under `invs:<wallet>`). The payer opens `/pay/<merchant>?invoice=<id>`; a rupiah amount converts to tUSDT at the server's IDR rate (open.er-api, cached 10 min), rounded up to the cent with the same `requiredUnits` the server checks (`web/shared/invoice.ts`). After the payment the page sends the tx hash to `POST /api/invoices?paid`, and the server marks the invoice paid only if the mined tx holds a CoinAI `PaymentRouted` to that merchant made after the invoice, covering the amount (2% rate slack for rupiah), and the tx hasn't settled another invoice (`invtx:<hash>`, set once).
+
+Every payment made through the pay page also reaches `POST /api/agent/autopilot` with its tx hash. The server reads the payment from the chain and sends the recipient a **Telegram receipt** (amount, payer, the invoice if any, what was saved), once per tx (`receipt:<hash>`), even when the agent isn't enabled. The text is written in code (`api/_lib/receipts.ts`, en/id/zh), so it arrives when the LLMs are down.
+
+`api/invoices.ts` is the 12th Vercel function, the Hobby plan's limit: add new server routes as `?action` branches of existing functions. It also serves **link previews** for shared groups: `vercel.json` rewrites `/g/:id` to `/api/invoices?og=:id`, which reads the group from the chain and returns a tiny page with Open Graph / Twitter tags (title, one-line summary, the kind's art; everything HTML-escaped, `api/_lib/og.ts`) that sends people on to `/groups/:id`. Locally (vite) `/g/:id` renders the group page directly.
 
 ## Payment → agent flow
 
