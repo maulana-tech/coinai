@@ -27,9 +27,9 @@ coinAI — AI-agent-managed auto-savings on every payment, on BNB Smart Chain te
 - Multi-agent flow in `api/_lib/swarm.ts`: Market Analyst (Chainlink on BSC + Binance, `shared/market.ts`) → Savings + Investment strategists (parallel, use the investor profile) → `guard.ts` (deterministic, mirrors contract rules) → Risk Officer (veto only, fails closed) → executor (agent wallet) → Reporter. Orchestration is code, not an LLM supervisor.
 - LLM = OpenRouter via plain `fetch` (`llm.ts`), model per role via `OPENROUTER_MODEL[_ROLE]`. Storage = Upstash Redis REST (`kv.ts`). Notifications: Telegram bot webhook (`api/telegram.ts`) + Gmail SMTP (`nodemailer`). Daily cron `api/cron/daily.ts` (Vercel Hobby = 1x/day).
 - Auth: wallet `personal_sign` of `loginMessage()` → `/api/auth` → HMAC bearer token (`http.ts`). All server env vars are listed in `web/.env.example` (no `VITE_` prefix = never shipped to the client).
-- Imports inside `api/` use `.js` extensions (nodenext). `api/` is typechecked by `tsconfig.api.json` as part of `npm run build`. Guard test: `node --test api/_lib/guard.test.ts`.
+- Imports inside `api/` use `.js` extensions (nodenext). `api/` is typechecked by `tsconfig.api.json` as part of `npm run build`. Guard and decision tests: `node --test api/_lib/guard.test.ts api/_lib/decision.test.ts` (Node < 22.18 needs `--experimental-strip-types`). Evaluation: `npx tsx --test api/_lib/evaluation.test.ts`; `npx tsx scripts/evaluate-agents.ts` regenerates `src/lib/evaluation-results.ts` (never edit it by hand).
 - `vercel dev` (not `npm run dev`) is needed to serve `/api` locally.
-- Vercel Hobby allows **max 12 serverless functions** (one per file in `api/` outside `_lib/`; currently 11). Add routes to an existing file (method or query flag) rather than a new file.
+- Vercel Hobby allows **max 12 serverless functions** (one per file in `api/` outside `_lib/`; all 12 used since `api/invoices.ts`). Add routes to an existing file (method or query flag) rather than a new file.
 
 ## Web conventions
 
