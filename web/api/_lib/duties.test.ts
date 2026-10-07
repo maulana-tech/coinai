@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { duesPlan, groupReminders, type Fund, type Stake } from './duties.ts'
 
 const NOW = 1_000_000
-const fund = (x: Partial<Fund>): Fund => ({ id: 1, kind: 'iuran', title: 'Kas RT', cancelled: false, deadline: 0, dues: 5_000_000n, target: 0n, raised: 0n, ...x })
+const fund = (x: Partial<Fund>): Fund => ({ id: 1, kind: 'iuran', title: 'Kas RT', organizer: '0xorg', cancelled: false, deadline: 0, period: 30 * 86400, dues: 5_000_000n, target: 0n, raised: 0n, contributors: 0, members: 1, ...x })
 const stake = (x: Partial<Stake>): Stake => ({ fund: fund({}), member: true, contributed: 0n, paidPeriods: 0, owedPeriods: 1, ...x })
 
 test('Hermes pays whole periods behind, capped by spendable and budget', () => {
