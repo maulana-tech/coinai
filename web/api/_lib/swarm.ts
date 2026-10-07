@@ -12,11 +12,12 @@
 import type { VaultMix } from '../../shared/pool.js'
 import { fetchMarket, type MarketSnapshot } from '../../shared/market.js'
 import { describe, dripYield, execute, explorerTx, fmt, readUserState, type UserState } from './chain.js'
-import { confidenceGate, fitAllocation, MAX_TILT, MIN_CONFIDENCE, readConfidence, referenceMix, type Reference } from './decision.js'
-import { checkProposal, policyActive, TARGETS, type Proposal, type Target } from './guard.js'
+import { confidenceGate, fitAllocation, MAX_TILT, MIN_CONFIDENCE, readConfidence, referenceMix, riskOffRebalance, type Reference } from './decision.js'
+import { checkProposal, hasSkill, policyActive, POSITIONS, SKILL_INVEST, TARGETS, type Position, type Proposal, type Target } from './guard.js'
 import { askJson, complete, llmFailure, withUserKeys, type LlmFailure } from './llm.js'
 import { kv } from './kv.js'
 import { activeStrategy, type Strategy } from './pools.js'
+import { getGoals, goalProgress } from './rewards.js'
 
 export type Locale = 'en' | 'id' | 'zh'
 export const LANGUAGE: Record<Locale, string> = { en: 'English', id: 'Bahasa Indonesia', zh: 'Simplified Chinese' }
@@ -28,7 +29,7 @@ export type AgentName = 'market' | 'savings' | 'investment' | 'guard' | 'risk' |
 
 export type Step = {
   agent: AgentName
-  proposal?: { kind: Proposal['kind']; bps?: number; amount?: string; target?: Target; reason: string }
+  proposal?: { kind: Proposal['kind']; bps?: number; amount?: string; target?: Position; from?: Position; fundId?: number; reason: string }
   outcome: 'analyzed' | 'proposed' | 'skipped' | 'rejected' | 'approved' | 'executed' | 'failed'
   note?: string
   code?: LlmFailure // set when an LLM call failed, so the app can say why in plain words
@@ -85,7 +86,8 @@ type Snapshot = { totalReceived: string; paymentCount: number; savings: string; 
 
 const TEAM = `You are part of coinAI's agent team managing a user's automatic savings and investments on BNB Chain testnet.
 Every incoming payment is split: a percentage goes to savings, the rest stays spendable.
-Idle savings earn nothing until invested into one of three vaults: conservative (low risk), balanced (medium), growth (high risk).`
+Idle savings earn nothing until invested into one of three vaults: conservative (low risk), balanced (medium), growth (high risk).
+Savings may also sit in the AI Smart Money basket (tUSDT, BNB, BTC, ETH, CAKE), whose weights another agent (Plutus) manages; you don't allocate to it.`
 
 // ─── Investor profile ────────────────────────────────────────────────────────
 
@@ -181,7 +183,8 @@ Role: Savings Strategist. Decide the savings split percentage.
   over from earlier payments (they ran dry before this payday) -> save less.
 - Compare with recentRuns' spendableBalance: if what is left over keeps shrinking run after run, don't raise even if it
   still looks comfortable, and save less once it is under a quarter of a payment. Judge gaps against their own rhythm: 30 days is normal for a monthly salary.
-- A concrete goal in the investor profile (e.g. a trip in December) justifies saving more.
+- A concrete goal in the investor profile (e.g. a trip in December), or a savings goal (state.savingsGoals) that is
+  behind for its deadline, justifies saving more.
 - With fewer than 2 payments there is too little data: choose "none" unless the user instruction says otherwise.
 - The user instruction, if any, takes priority when it stays within limits.
 ${MEMORY}
@@ -244,6 +247,8 @@ it ignores a risk_off market read, it conflicts with the user instruction, it re
 (see recentRuns, newest first), or it leaves the user without a sensible buffer.
 Proposals with ids "invest:<vault>" are legs of ONE allocation that share a single reason: judge the allocation as a whole
 (a small conservative leg inside an aggressive allocation is diversification, not a contradiction), then approve or veto each leg.
+The proposal with id "rebalance" moves value between the user's own positions on a fresh risk_off read: approve it unless the
+market data contradicts risk_off.
 An allocation close to referenceMix with source "strategy" follows the user's own saved pool, their explicit choice: approve it
 unless the market read is risk_off and it ignores that, or it leaves no buffer.
 Write each "note" in ${c.lang}.
@@ -330,6 +335,13 @@ function cleanReason(x: unknown) {
 }
 const agentFor = (id: string): AgentName => (id === 'split' ? 'savings' : 'investment')
 
+// Athena's rebalance reason is code-written (no LLM), so it's localized here.
+const RISK_OFF_REASON: Record<Locale, (summary: string) => string> = {
+  en: (m) => `Market turned risk-off, moving the Growth position to Conservative to protect it. ${m}`,
+  id: (m) => `Pasar berubah risk-off, posisi Growth dipindah ke Conservative untuk melindunginya. ${m}`,
+  zh: (m) => `市场转为避险，将成长型仓位转入稳健型以保护资金。${m}`,
+}
+
 // ─── Memory: what the team did on this account lately ───────────────────────
 
 const MEMORY_RUNS = 5
@@ -396,13 +408,22 @@ export async function runSwarm(
 
 async function runTeam(user: string, opts: { locale?: Locale; instruction?: string; reportOnly?: boolean }): Promise<RunResult> {
   const locale = opts.locale ?? 'en'
-  const [s, profile, strategy, past] = await Promise.all([
+  const [s, profile, strategy, past, goals] = await Promise.all([
     readUserState(user),
     getProfile(user),
     activeStrategy(user).catch(() => null),
     recentRuns(user),
+    getGoals(user),
   ])
-  const view = describe(s)
+  // C1: the user's savings pockets, so a goal with a close deadline can justify saving more
+  const saved = Number(POSITIONS.reduce((sum, p) => sum + s.positions[p], s.savings)) / 1e6
+  const view = {
+    ...describe(s),
+    savingsGoals: goals.map((g) => {
+      const p = goalProgress(g, saved, s.now)
+      return { name: g.name, target: `${g.target} tUSDT`, sharePercent: g.share, saved: `${p.saved} tUSDT`, progressPercent: p.pct, daysLeft: p.daysLeft }
+    }),
+  }
   const steps: Step[] = []
   const executed: RunResult['executed'] = []
   const active = policyActive(s) && !opts.reportOnly
@@ -489,6 +510,14 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
       }
     } else steps.push({ agent: 'investment', outcome: 'skipped', note: cleanReason(invest.value.reason) })
 
+    // Athena, in code: a fresh risk_off read moves Growth to Conservative (CoinAIV2.agentRebalance, same review below).
+    const shift = market && hasSkill(s, SKILL_INVEST) ? riskOffRebalance(market.regime, past[0]?.market?.regime ?? null, s.positions.growth, MIN_INVEST) : null
+    if (shift)
+      proposals.push({
+        id: 'rebalance',
+        p: { kind: 'rebalance', from: 'growth', to: 'conservative', amount: shift, reason: cleanReason(RISK_OFF_REASON[locale](market!.summary)) },
+      })
+
     // 2. Deterministic guard, tracking idle savings already committed by earlier proposals.
     let remaining = s.savings
     const passed = proposals.filter(({ id, p }) => {
@@ -551,7 +580,14 @@ async function runTeam(user: string, opts: { locale?: Locale; instruction?: stri
 }
 
 function stepProposal(p: Proposal): NonNullable<Step['proposal']> {
-  return p.kind === 'set_split'
-    ? { kind: p.kind, bps: p.bps, reason: p.reason }
-    : { kind: p.kind, amount: fmt(p.amount), target: p.target, reason: p.reason }
+  switch (p.kind) {
+    case 'set_split':
+      return { kind: p.kind, bps: p.bps, reason: p.reason }
+    case 'invest':
+      return { kind: p.kind, amount: fmt(p.amount), target: p.target, reason: p.reason }
+    case 'rebalance':
+      return { kind: p.kind, amount: fmt(p.amount), from: p.from, target: p.to, reason: p.reason }
+    case 'contribute':
+      return { kind: p.kind, amount: fmt(p.amount), fundId: p.fundId, reason: p.reason }
+  }
 }
