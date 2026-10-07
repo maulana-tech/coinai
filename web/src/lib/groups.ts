@@ -4,6 +4,7 @@
 import { Contract, EventLog, type ContractRunner } from 'ethers'
 import { DEPLOYMENT } from '../../shared/deployment.js'
 import { logsProvider, readProvider } from '@/lib/config'
+import { coinai } from '@/lib/coinai'
 import { getEthersSigner } from '@/lib/ethers-wagmi'
 import { ensureTokenAllowance } from '@/lib/token'
 
@@ -295,6 +296,15 @@ export async function contributeToFund(user: string, id: number, amount: bigint,
       ? c.contributeFor(id, member, amount, message, { gasLimit: 250_000 })
       : c.contribute(id, amount, message, { gasLimit: 250_000 }),
   )
+}
+
+/** Pays from the spendable balance inside coinAI (CoinAIV2.contributeFromSpend); always for the payer themself. */
+export async function contributeFromSpendable(user: string, id: number, amount: bigint, message: string) {
+  try {
+    return await coinai.contributeFromSpend(user, BigInt(id), amount, message)
+  } catch (e) {
+    throw groupError(e)
+  }
 }
 
 export async function withdrawFromFund(id: number, amount: bigint, memo: string) {
