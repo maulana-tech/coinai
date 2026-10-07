@@ -8,7 +8,7 @@ import { chainProvider } from './chain.js'
 
 const KINDS = ['patungan', 'iuran', 'donasi'] as const
 type Kind = (typeof KINDS)[number]
-const IMAGE: Record<Kind, string> = { patungan: '/landing/agents.jpg', iuran: '/landing/save.jpg', donasi: '/landing/hero.jpg' }
+export const IMAGE: Record<Kind, string> = { patungan: '/landing/agents.jpg', iuran: '/landing/save.jpg', donasi: '/landing/hero.jpg' }
 const ABI = [
   'function fund(uint256 id) view returns ((address organizer,address beneficiary,uint8 kind,bool cancelled,uint64 start,uint64 deadline,uint64 period,uint128 target,uint128 dues,uint128 raised,uint128 withdrawn,uint32 contributors,uint32 members,string title))',
 ]
@@ -46,8 +46,8 @@ export async function readOgFund(id: number): Promise<OgFund> {
 export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
-const usdt = (x: bigint) => `${Number(formatUnits(x, 6)).toLocaleString('id-ID', { maximumFractionDigits: 2 })} tUSDT`
-const day = (unix: number) => new Date(unix * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' })
+export const usdt = (x: bigint) => `${Number(formatUnits(x, 6)).toLocaleString('id-ID', { maximumFractionDigits: 2 })} tUSDT`
+export const day = (unix: number) => new Date(unix * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' })
 
 /** One line for the preview, in Indonesian (the app's main audience). */
 export function ogDescription(f: OgFund): string {
@@ -64,7 +64,8 @@ export function ogPage(f: OgFund | null, id: number, origin: string): string {
   const target = `/groups/${id}`
   const title = f ? `${f.title} · coinAI` : 'coinAI · Dana grup'
   const description = f ? ogDescription(f) : 'Patungan, iuran, dan donasi bareng di coinAI. Setiap setoran tercatat on-chain.'
-  const image = `${origin}${IMAGE[f?.kind ?? 'patungan']}`
+  // the card drawn from the chain (og-image.ts); the query changes with the numbers so chat apps refetch it
+  const image = f ? `${origin}/g/${id}/image.png?v=${f.raised}-${f.contributors}-${f.members}-${Number(f.cancelled)}` : `${origin}${IMAGE.patungan}`
   const url = `${origin}/g/${id}`
   const e = escapeHtml
   return `<!doctype html>
@@ -79,7 +80,7 @@ export function ogPage(f: OgFund | null, id: number, origin: string): string {
 <meta property="og:title" content="${e(title)}" />
 <meta property="og:description" content="${e(description)}" />
 <meta property="og:image" content="${e(image)}" />
-<meta property="og:url" content="${e(url)}" />
+${f ? '<meta property="og:image:width" content="1200" />\n<meta property="og:image:height" content="630" />\n' : ''}<meta property="og:url" content="${e(url)}" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${e(title)}" />
 <meta name="twitter:description" content="${e(description)}" />
