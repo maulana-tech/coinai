@@ -9,12 +9,14 @@ import { cn } from '@/lib/utils'
 import { Reveal, Star, Title } from './kit'
 import { mono } from './styles'
 
-// "The council": the team as gods at one long table (public/greek-god.jpeg). The section pins while you scroll;
+// "The council": the team as gods at one long table (public/council.mp4, poster council.webp). The section pins while you scroll;
 // each step pans the painting to one agent, lights them and opens their card. Scroll is the only driver (the
 // index below just scrolls to a step), so the camera and the card never disagree.
 
-const ART = { src: '/greek-god.jpeg', w: 1243, h: 848 }
-const AGENT_WALLET = '0x03c8faF61c40F35CCFFd8fDcCa7F037C2dB2f6C6' // deployments.json "agent", also the basket curator
+// public/council.mp4: the painting brought to life (Higgsfield, static camera), cropped back to the painting's
+// framing; council.webp is its first frame. Face coordinates below are % of this frame.
+const ART = { src: '/council.webp', film: '/council.mp4', w: 1600, h: 942 }
+const AGENT_WALLET = DEPLOYMENT.v2.agent // the agent wallet, also the basket curator
 const CHAINLINK_BNB_USD = '0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526'
 
 type Id = 'zeus' | 'apollo' | 'demeter' | 'athena' | 'perseus' | 'hades' | 'heracles' | 'nyx' | 'percy' | 'plutus' | 'hermes' | 'poseidon'
@@ -33,7 +35,7 @@ type Agent = {
   facts: Fact[]
 }
 
-const COINAI_V1 = { name: 'coinAI v1', address: DEPLOYMENT.coinai }
+const COINAI = { name: 'coinAI v2', address: DEPLOYMENT.v2.coinai }
 
 // In the order a run flows through the team, then the v2 agents.
 const COUNCIL: Agent[] = [
@@ -43,10 +45,10 @@ const COUNCIL: Agent[] = [
     role: 'council.roleOrchestrator',
     engine: 'code',
     status: 'live',
-    head: [51, 34],
+    head: [50.2, 37.2],
     facts: [
       { label: 'council.wallet', name: 'coinAI agent', address: AGENT_WALLET },
-      { label: 'council.contract', ...COINAI_V1 },
+      { label: 'council.contract', ...COINAI },
     ],
   },
   {
@@ -55,7 +57,7 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleMarket',
     engine: 'llm',
     status: 'live',
-    head: [22.5, 32],
+    head: [21.3, 34.8],
     facts: [{ label: 'council.reads', name: 'Chainlink BNB/USD', address: CHAINLINK_BNB_USD }],
   },
   {
@@ -64,10 +66,10 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleSavings',
     engine: 'llm',
     status: 'live',
-    head: [6.5, 30],
+    head: [5.1, 32.5],
     facts: [
       { label: 'council.calls', code: 'agentSetSplit()' },
-      { label: 'council.contract', ...COINAI_V1 },
+      { label: 'council.contract', ...COINAI },
       { label: 'council.listed', tx: '0xb033763f9b5825b08d293362f826582a5e3fdf1a4a0eb80fdb0886aee3eee8c9' },
     ],
   },
@@ -77,10 +79,10 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleInvestment',
     engine: 'llm',
     status: 'live',
-    head: [83.5, 31],
+    head: [83.2, 33.6],
     facts: [
       { label: 'council.calls', code: 'agentInvest()' },
-      { label: 'council.contract', ...COINAI_V1 },
+      { label: 'council.contract', ...COINAI },
       { label: 'council.listed', tx: '0x1433229183d880a46faa1fb431004c88395059e3f4856765558c0c16c66179f3' },
     ],
   },
@@ -90,8 +92,8 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleGuard',
     engine: 'code',
     status: 'live',
-    head: [88.5, 26],
-    facts: [{ label: 'council.mirrors', ...COINAI_V1 }],
+    head: [88.3, 27.8],
+    facts: [{ label: 'council.mirrors', ...COINAI }],
   },
   {
     id: 'hades',
@@ -99,7 +101,7 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleRisk',
     engine: 'llm',
     status: 'live',
-    head: [17.5, 22],
+    head: [16.2, 23],
     facts: [{ label: 'council.keys', text: 'council.noKeys' }],
   },
   {
@@ -108,11 +110,10 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleExecutor',
     engine: 'code',
     status: 'live',
-    head: [77.5, 34],
+    head: [77.1, 37.2],
     facts: [
       { label: 'council.wallet', name: 'coinAI agent', address: AGENT_WALLET },
-      { label: 'council.contract', ...COINAI_V1 },
-      { label: 'council.deployTx', tx: '0x1cff9e50f7a4121fd794dea16dc223e9a28f7cc97eeae1f1670b564883d21754' },
+      { label: 'council.contract', ...COINAI },
     ],
   },
   {
@@ -121,7 +122,7 @@ const COUNCIL: Agent[] = [
     role: 'agent.roleReporter',
     engine: 'llm',
     status: 'live',
-    head: [62, 35],
+    head: [61.4, 38.4],
     facts: [{ label: 'council.keys', text: 'council.noKeys' }],
   },
   {
@@ -130,7 +131,7 @@ const COUNCIL: Agent[] = [
     role: 'council.roleChat',
     engine: 'llm',
     status: 'live',
-    head: [29.5, 35],
+    head: [28.4, 38.4],
     facts: [
       { label: 'council.calls', code: 'run_agent_team()' },
       { label: 'council.keys', text: 'council.noKeys' },
@@ -141,8 +142,8 @@ const COUNCIL: Agent[] = [
     name: 'Plutus',
     role: 'council.roleSmartMoney',
     engine: 'llm',
-    status: 'v2',
-    head: [13, 33],
+    status: 'live',
+    head: [11.7, 36],
     facts: [
       { label: 'council.calls', code: 'setSmartWeights()' },
       { label: 'council.contract', name: 'BasketVault', address: DEPLOYMENT.v2.basketVault },
@@ -154,8 +155,8 @@ const COUNCIL: Agent[] = [
     name: 'Hermes',
     role: 'council.rolePay',
     engine: 'code',
-    status: 'v2',
-    head: [37.5, 36],
+    status: 'live',
+    head: [36.5, 39.5],
     facts: [
       { label: 'council.calls', code: 'agentContribute()' },
       { label: 'council.contract', name: 'coinAI v2', address: DEPLOYMENT.v2.coinai },
@@ -168,7 +169,7 @@ const COUNCIL: Agent[] = [
     role: 'council.roleGroups',
     engine: 'contract',
     status: 'live',
-    head: [72.5, 35],
+    head: [72.1, 38.4],
     facts: [
       { label: 'council.contract', name: 'GroupFunds', address: DEPLOYMENT.v2.groupFunds },
       { label: 'council.deployTx', tx: '0xf55283fbe20a4f8c4356e9554d6381cdfe91f93dd8b2a64092dce74b98c8df32' },
@@ -285,7 +286,11 @@ export function Council() {
       <div ref={stageRef} className="sticky top-0 h-svh overflow-hidden">
         {layer && (
           <motion.div aria-hidden="true" className="pointer-events-none absolute top-0 left-0 origin-top-left will-change-transform" style={layer}>
-            <img src={ART.src} alt="" draggable={false} loading="lazy" decoding="async" className="h-full w-full select-none" />
+            {reduced ? (
+              <img src={ART.src} alt="" draggable={false} loading="lazy" decoding="async" className="h-full w-full select-none" />
+            ) : (
+              <video src={ART.film} poster={ART.src} autoPlay muted loop playsInline preload="metadata" className="h-full w-full object-cover" />
+            )}
             <motion.div className="absolute inset-0" style={{ background: spot, opacity: dim }} />
           </motion.div>
         )}
