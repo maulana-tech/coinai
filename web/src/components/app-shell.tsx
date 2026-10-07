@@ -20,11 +20,13 @@ import {
   SunIcon,
   TrendingUpIcon,
   UsersIcon,
+  GiftIcon,
   WalletIcon,
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { AddressAvatar } from '@/components/brand/address-avatar'
+import { LegacyBanner } from '@/components/legacy-banner'
 import { LogoMark } from '@/components/brand/logo'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -87,7 +89,13 @@ const NAV_SECTIONS: { label: MessageKey; items: { to: string; label: MessageKey;
       { to: '/app/chat', label: 'nav.chat', icon: MessageCircleIcon },
     ],
   },
-  { label: 'nav.sectionSocial', items: [{ to: '/groups', label: 'nav.groups', icon: UsersIcon }] },
+  {
+    label: 'nav.sectionSocial',
+    items: [
+      { to: '/groups', label: 'nav.groups', icon: UsersIcon },
+      { to: '/app/rewards', label: 'nav.rewards', icon: GiftIcon },
+    ],
+  },
 ]
 // Settings-like pages share the pinned bottom section, so the scrolling part fits a laptop screen.
 const MORE_ITEMS: { to: string; label: MessageKey; icon: LucideIcon }[] = [
@@ -329,6 +337,7 @@ export function AppShell() {
               <ThemeToggle />
             </div>
           </div>
+          <LegacyBanner />
           <Outlet />
         </main>
       </div>
