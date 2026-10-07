@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_MOCK?: string // '1' = in-memory mock (lib/coinai.mock.ts), no chain
   readonly VITE_COINAI_ADDRESS?: string
   readonly VITE_TOKEN_ADDRESS?: string
   readonly VITE_USDT_ADDRESS?: string // alias of VITE_TOKEN_ADDRESS
