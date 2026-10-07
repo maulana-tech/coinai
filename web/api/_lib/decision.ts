@@ -84,3 +84,27 @@ export function confidenceGate(confidence: number | null, min = MIN_CONFIDENCE):
   if (confidence < min) return `low confidence (${confidence.toFixed(2)} < ${min})`
   return null
 }
+
+// ─── Regime moves (Athena's rebalance, Plutus's basket weights) ──────────────
+
+type Regime = 'risk_on' | 'neutral' | 'risk_off'
+
+/** Athena: when the market turns risk_off, move the Growth position to Conservative (once, on the change). */
+export function riskOffRebalance(regime: Regime | null, previous: Regime | null, growth: bigint, minAmount: bigint): bigint | null {
+  return regime === 'risk_off' && previous !== 'risk_off' && growth >= minAmount ? growth : null
+}
+
+// Plutus: basket weights (bps, sum 10 000) per regime, by asset symbol. Every row stays inside the BasketVault caps
+// set at deploy (BNB/BTC/ETH ≤ 50%, CAKE ≤ 20%) and keeps at least 10% in tUSDT; unknown symbols get 0.
+const SMART_WEIGHTS: Record<Regime, Record<string, number>> = {
+  risk_on: { tUSDT: 2_000, BNB: 2_500, BTC: 2_500, ETH: 2_000, CAKE: 1_000 },
+  neutral: { tUSDT: 4_000, BNB: 2_000, BTC: 2_000, ETH: 1_500, CAKE: 500 },
+  risk_off: { tUSDT: 7_000, BNB: 1_000, BTC: 1_500, ETH: 500, CAKE: 0 },
+}
+
+/** The basket weights for a regime, in the vault's asset order; null when they wouldn't fit the vault's caps. */
+export function smartWeights(regime: Regime, assets: { symbol: string; maxBps: number }[]): number[] | null {
+  const w = assets.map((a) => SMART_WEIGHTS[regime][a.symbol] ?? 0)
+  const fits = w.reduce((s, x) => s + x, 0) === 10_000 && w[0] >= 1_000 && w.every((x, i) => x <= assets[i].maxBps)
+  return fits ? w : null
+}
