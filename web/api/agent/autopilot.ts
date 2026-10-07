@@ -1,10 +1,11 @@
 import { getAddress } from 'ethers'
-import { explorerTx, paymentFromTx, readUserState } from '../_lib/chain.js'
+import { explorerTx, paymentCountOf, paymentFromTx, readUserState } from '../_lib/chain.js'
 import { policyActive } from '../_lib/guard.js'
 import { body, json } from '../_lib/http.js'
 import { kv } from '../_lib/kv.js'
 import { getSub, sendTelegram } from '../_lib/notify.js'
 import { notifyPayment } from '../_lib/receipts.js'
+import { creditReferral, rewardsOf } from '../_lib/rewards.js'
 import { runSwarm } from '../_lib/swarm.js'
 
 const MIN_IDLE = 1_000_000n // 1 tUSDT
@@ -14,7 +15,10 @@ const FRESH_PAYMENT = 600 // seconds
 // agent permission, and cheap chain checks gate every LLM call.
 // POST { user, action: 'register' } → { autopilot }: enroll a wallet that authorized our agent in the daily run.
 // POST { user, action: 'nudge', txHash? } → { ran }: after a payment, let the recipient's agents invest the new savings now.
-// With txHash, the recipient also gets a Telegram receipt (once per tx; the tx is read from the chain, not trusted).
+// With txHash, the recipient also gets a Telegram receipt (once per tx; the tx is read from the chain, not trusted),
+// and a newcomer's first payment through the link earns both sides referral points (C4).
+// GET ?user=0x… → { points, referrals, referredBy, streakWeeks, bestStreak } (public; also enrolls the wallet in the
+// daily streak tracking, which needs no agent permission).
 export async function POST(req: Request) {
   const { user: raw, action, txHash } = await body<{ user: string; action: 'nudge' | 'register'; txHash: string }>(req)
   let user: string
@@ -31,7 +35,12 @@ export async function POST(req: Request) {
   }
   if (action === 'nudge' && txHash) {
     const payment = await paymentFromTx(String(txHash)).catch(() => null)
-    if (payment?.to === user) await notifyPayment(payment).catch((e) => console.error('receipt', e))
+    if (payment?.to === user) {
+      await notifyPayment(payment).catch((e) => console.error('receipt', e))
+      // statsOf counts payments received, so paying doesn't change the payer's count: 0 means they're new to coinAI
+      const count = await paymentCountOf(payment.from).catch(() => 1)
+      await creditReferral(payment.from, user, count).catch((e) => console.error('referral', e))
+    }
   }
   if (!policyActive(s)) return json({ ran: false, reason: 'agent_not_enabled' })
   if (s.savings < MIN_IDLE) return json({ ran: false, reason: 'no_idle_savings' })
@@ -46,4 +55,15 @@ export async function POST(req: Request) {
     await sendTelegram(sub.telegramChatId, `Your agents put the new savings to work:\n${lines}`).catch(() => {})
   }
   return json({ ran: true, executed: run.executed.length })
+}
+
+export async function GET(req: Request) {
+  let user: string
+  try {
+    user = getAddress(String(new URL(req.url).searchParams.get('user')))
+  } catch {
+    return json({ error: 'invalid_address' }, 400)
+  }
+  await kv.sadd('savers', user)
+  return json(await rewardsOf(user))
 }
