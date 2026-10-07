@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CopyIcon, DownloadIcon, Loader2Icon, Share2Icon } from 'lucide-react'
+import { CopyIcon, DownloadIcon, LinkIcon, Loader2Icon, Share2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { KIND, useMoney } from '@/components/groups/group-meta'
 import { GLASS } from '@/components/groups/group-shell'
@@ -27,18 +27,22 @@ const CTA: Record<GroupFund['kind'], MessageKey> = {
 }
 
 /**
- * Share a group: a ready-to-post image (feed 4:5 or story 9:16) in the app's style, to download or hand to the
- * phone's share sheet (Instagram, WhatsApp Status, …), plus link shares for chat apps.
+ * Share a group. Link (the default): the /g/:id link, which chat apps unfold into the group's live card
+ * (drawn on the server, api/_lib/og-image.ts), shown here as it will look. Post / Story: a ready-to-post image
+ * in the app's style, to download or hand to the phone's share sheet (Instagram, WhatsApp Status, …).
  */
 export function SocialCard({ fund, members, highlight }: { fund: GroupFund; members: { dues: MemberDues }[] | null; highlight: boolean }) {
   const t = useT()
   const { locale } = useSettings()
   const { main } = useMoney()
-  const [format, setFormat] = useState<ShareFormat>('post')
+  const [format, setFormat] = useState<ShareFormat | 'link'>('link')
+  const [previewFailed, setPreviewFailed] = useState(false)
   const [image, setImage] = useState<{ blob: Blob; url: string } | null>(null)
   const [failed, setFailed] = useState(false)
   const link = `${window.location.origin}/g/${fund.id}`
   const text = t('groups.shareText', { title: fund.title, link })
+  // same version query as the og:image tag, so a new contribution shows a fresh preview
+  const preview = `${link}/image.png?v=${fund.raised}-${fund.contributors}-${fund.members}-${Number(fund.cancelled)}`
 
   const input = useMemo(() => {
     const paidUp = members?.length ? members.filter((m) => duesBehind(m.dues) === 0).length / members.length : null
@@ -63,6 +67,7 @@ export function SocialCard({ fund, members, highlight }: { fund: GroupFund; memb
   }, [fund, members, locale, main, t, link])
 
   useEffect(() => {
+    if (format === 'link') return
     let live = true
     let url = ''
     setImage(null)
@@ -99,6 +104,14 @@ export function SocialCard({ fund, members, highlight }: { fund: GroupFund; memb
       if ((e as Error).name !== 'AbortError') toast.error(t('groups.socialShareFailed'))
     }
   }
+  const shareLink = async () => {
+    if (typeof navigator.share !== 'function') return copy()
+    try {
+      await navigator.share({ title: fund.title, text: t('groups.shareText', { title: fund.title, link: '' }).trim(), url: link })
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') void copy()
+    }
+  }
   const copy = async () => {
     await navigator.clipboard.writeText(link)
     toast.success(t('settings.copied'))
@@ -110,7 +123,7 @@ export function SocialCard({ fund, members, highlight }: { fund: GroupFund; memb
     { label: 'Telegram', href: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(fund.title)}` },
     { label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}` },
   ]
-  const { w, h } = SHARE_SIZE[format]
+  const { w, h } = SHARE_SIZE[format === 'link' ? 'post' : format]
 
   return (
     <Card className={cn(GLASS, highlight && 'border-primary ring-1 ring-primary')}>
@@ -119,36 +132,68 @@ export function SocialCard({ fund, members, highlight }: { fund: GroupFund; memb
         <p className="text-sm text-muted-foreground">{t(highlight ? 'groups.liveBody' : 'groups.socialCaption')}</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Tabs value={format} onValueChange={(v) => setFormat(v as ShareFormat)}>
+        <Tabs value={format} onValueChange={(v) => setFormat(v as ShareFormat | 'link')}>
           <TabsList className="w-full rounded-full">
+            <TabsTrigger value="link" className="flex-1 rounded-full">{t('groups.socialLink')}</TabsTrigger>
             <TabsTrigger value="post" className="flex-1 rounded-full">{t('groups.socialPost')}</TabsTrigger>
             <TabsTrigger value="story" className="flex-1 rounded-full">{t('groups.socialStory')}</TabsTrigger>
           </TabsList>
         </Tabs>
 
-        <div className="mx-auto w-full" style={{ maxWidth: format === 'story' ? 240 : 320 }}>
-          <div className="overflow-hidden rounded-xl border shadow-lg shadow-black/10" style={{ aspectRatio: `${w} / ${h}` }}>
-            {image ? (
-              <img src={image.url} alt={t('groups.socialAlt', { title: fund.title })} className="h-full w-full object-cover" />
-            ) : failed ? (
-              <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">{t('groups.socialFailed')}</div>
-            ) : (
-              <Skeleton className="h-full w-full rounded-none bg-card/60" />
-            )}
-          </div>
-        </div>
+        {format === 'link' ? (
+          <>
+            <div className="overflow-hidden rounded-xl border bg-card/60 shadow-lg shadow-black/10">
+              <div className="aspect-[1200/630] bg-muted/40">
+                {previewFailed ? (
+                  <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">{t('groups.socialLinkNoPreview')}</div>
+                ) : (
+                  <img src={preview} alt={t('groups.socialAlt', { title: fund.title })} className="h-full w-full object-cover" onError={() => setPreviewFailed(true)} />
+                )}
+              </div>
+              <div className="space-y-0.5 border-t px-3 py-2">
+                <p className="truncate text-sm font-medium">{fund.title} · coinAI</p>
+                <p className="truncate text-xs text-muted-foreground">{link.replace(/^https?:\/\//, '')}</p>
+              </div>
+            </div>
+            <p className="-mt-2 text-center text-xs text-muted-foreground">{t('groups.socialLinkHint')}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" className="rounded-full" onClick={() => void copy()}>
+                <CopyIcon className="size-4" />
+                {t('groups.socialCopyLink')}
+              </Button>
+              <Button className="rounded-full" onClick={() => void shareLink()}>
+                <LinkIcon className="size-4" />
+                {t('groups.socialShareLink')}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mx-auto w-full" style={{ maxWidth: format === 'story' ? 240 : 320 }}>
+              <div className="overflow-hidden rounded-xl border shadow-lg shadow-black/10" style={{ aspectRatio: `${w} / ${h}` }}>
+                {image ? (
+                  <img src={image.url} alt={t('groups.socialAlt', { title: fund.title })} className="h-full w-full object-cover" />
+                ) : failed ? (
+                  <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">{t('groups.socialFailed')}</div>
+                ) : (
+                  <Skeleton className="h-full w-full rounded-none bg-card/60" />
+                )}
+              </div>
+            </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" className="rounded-full" disabled={!image} onClick={download}>
-            {image ? <DownloadIcon className="size-4" /> : <Loader2Icon className="size-4 animate-spin" />}
-            {t('groups.socialDownload')}
-          </Button>
-          <Button className="rounded-full" disabled={!image} onClick={() => (canShareFile ? void shareImage() : download())}>
-            <Share2Icon className="size-4" />
-            {t('groups.socialShare')}
-          </Button>
-        </div>
-        {!canShareFile && image && <p className="-mt-2 text-center text-xs text-muted-foreground">{t('groups.socialDesktopHint')}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" className="rounded-full" disabled={!image} onClick={download}>
+                {image ? <DownloadIcon className="size-4" /> : <Loader2Icon className="size-4 animate-spin" />}
+                {t('groups.socialDownload')}
+              </Button>
+              <Button className="rounded-full" disabled={!image} onClick={() => (canShareFile ? void shareImage() : download())}>
+                <Share2Icon className="size-4" />
+                {t('groups.socialShare')}
+              </Button>
+            </div>
+            {!canShareFile && image && <p className="-mt-2 text-center text-xs text-muted-foreground">{t('groups.socialDesktopHint')}</p>}
+          </>
+        )}
 
         <div className="space-y-2 border-t pt-4">
           <div className="flex items-center gap-2">
