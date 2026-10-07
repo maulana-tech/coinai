@@ -4,7 +4,6 @@ import { isAddress, getAddress } from 'ethers'
 import { POSITIONS } from './_lib/guard.js'
 import { readUserState } from './_lib/chain.js'
 import { ogGoalPage, ogPage, readOgFund, type OgGoal } from './_lib/og.js'
-import * as og from './_lib/og-image.js'
 import { goalProgress, publicGoal } from './_lib/rewards.js'
 import { notifyPayment } from './_lib/receipts.js'
 
@@ -94,12 +93,13 @@ async function readOgGoal(user: string, id: string): Promise<OgGoal | null> {
 
 /**
  * A preview card, or the plain art when there is nothing to draw or drawing fails (fonts, pictures, wasm), so a
- * problem with the renderer never breaks a link preview. The failure is named in x-og-error for debugging.
+ * problem with the renderer never breaks a link preview. The failure is named in x-og-error for debugging. The
+ * renderer is imported here, not at the top: a static import of it crashed the whole function on Vercel.
  */
-async function drawn(draw: (m: typeof og) => Promise<Response> | null, origin: string, fallback: string) {
+async function drawn(draw: (m: typeof import('./_lib/og-image.js')) => Promise<Response> | null, origin: string, fallback: string) {
   let error = ''
   try {
-    const res = await draw(og)
+    const res = await draw(await import('./_lib/og-image.js'))
     if (res) return res
   } catch (e) {
     console.error('og image', e)
