@@ -10,7 +10,9 @@
 
 ---
 
-![coinAI in 12 seconds: landing, the agent council, the 80/20 split on the dashboard, agent permissions, pool builder and a new group](docs/assets/demo.gif)
+<p align="center">
+  <img src="docs/assets/demo.gif" width="720" alt="coinAI in 12 seconds: landing, the agent council, the 80/20 split on the dashboard, agent permissions, pool builder and a new group">
+</p>
 
 ## Demo
 
