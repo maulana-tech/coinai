@@ -7,7 +7,7 @@
 
 import { Contract, formatUnits } from 'ethers'
 import { DEPLOYMENT } from '../../shared/deployment.js'
-import { agentWallet, chainProvider, execute, type UserState } from './chain.js'
+import { agentAddress, agentWallet, chainProvider, execute, type UserState } from './chain.js'
 import { smartWeights } from './decision.js'
 import { checkProposal, hasSkill, payBudgetLeft, SKILL_PAY, type Proposal } from './guard.js'
 import type { Locale, MarketAnalysis } from './swarm.js'
@@ -39,11 +39,15 @@ export type Fund = {
   id: number
   kind: (typeof KINDS)[number]
   title: string
+  organizer: string
   cancelled: boolean
   deadline: number
+  period: number // iuran: seconds
   dues: bigint
   target: bigint
   raised: bigint
+  contributors: number
+  members: number
 }
 
 /** One user's stake in one fund. */
@@ -63,11 +67,15 @@ export async function readFunds(): Promise<Fund[]> {
         id,
         kind: KINDS[Number(f.kind)] ?? 'donasi',
         title: String(f.title),
+        organizer: String(f.organizer),
         cancelled: Boolean(f.cancelled),
         deadline: Number(f.deadline),
+        period: Number(f.period),
         dues: BigInt(f.dues),
         target: BigInt(f.target),
         raised: BigInt(f.raised),
+        contributors: Number(f.contributors),
+        members: Number(f.members),
       }
     }),
   )
@@ -112,7 +120,7 @@ export function duesPlan(stakes: Stake[], spend: bigint, budgetLeft: bigint, now
 async function hermesListing(): Promise<number | null> {
   const r = new Contract(DEPLOYMENT.v2.agentRegistry, REGISTRY_ABI, chainProvider())
   const count = Number(await r.listingCount())
-  const me = agentWallet().address.toLowerCase()
+  const me = agentAddress().toLowerCase()
   for (let id = 0; id < count; id++) {
     const l = await r.listing(id)
     if (l.name === 'Hermes' && l.active && String(l.agent).toLowerCase() === me) return id
@@ -120,12 +128,15 @@ async function hermesListing(): Promise<number | null> {
   return null
 }
 
-export async function hermesHired(user: string): Promise<boolean> {
+/** Until when (unix seconds) the user has Hermes hired; 0 when never or not listed. */
+export async function hermesRentedUntil(user: string): Promise<number> {
   const id = await hermesListing()
-  if (id === null) return false
+  if (id === null) return 0
   const r = new Contract(DEPLOYMENT.v2.agentRegistry, REGISTRY_ABI, chainProvider())
-  return Number(await r.rentedUntil(user, id)) > Math.floor(Date.now() / 1000)
+  return Number(await r.rentedUntil(user, id))
 }
+
+export const hermesHired = async (user: string) => (await hermesRentedUntil(user)) > Math.floor(Date.now() / 1000)
 
 export type Paid = { fundId: number; title: string; amount: bigint; txHash?: string; error?: string }
 
@@ -216,7 +227,7 @@ export function groupReminders(stakes: Stake[], paid: Paid[], now: number, local
 // ─── Plutus ──────────────────────────────────────────────────────────────────
 
 /** Sets the basket weights for today's regime; skipped when they're already set. Returns the tx hash, if sent. */
-export async function plutusSetWeights(market: MarketAnalysis): Promise<{ weights: number[]; txHash: string } | null> {
+export async function plutusSetWeights(market: MarketAnalysis): Promise<{ weights: number[]; symbols: string[]; reason: string; txHash: string } | null> {
   const basket = new Contract(DEPLOYMENT.v2.basketVault, BASKET_ABI, agentWallet())
   const [assets, current] = await Promise.all([
     basket.assets() as Promise<{ symbol: string; maxBps: bigint }[]>,
@@ -230,5 +241,5 @@ export async function plutusSetWeights(market: MarketAnalysis): Promise<{ weight
   const reason = `${market.regime.replace('_', '-')}: ${market.summary}`.slice(0, 280)
   const tx = await basket.setSmartWeights(weights, reason)
   await tx.wait()
-  return { weights, txHash: tx.hash as string }
+  return { weights, symbols: assets.map((a) => a.symbol), reason, txHash: tx.hash as string }
 }
