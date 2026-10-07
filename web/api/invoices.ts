@@ -4,6 +4,7 @@ import { isAddress, getAddress } from 'ethers'
 import { POSITIONS } from './_lib/guard.js'
 import { readUserState } from './_lib/chain.js'
 import { ogGoalPage, ogPage, readOgFund, type OgGoal } from './_lib/og.js'
+import * as og from './_lib/og-image.js'
 import { goalProgress, publicGoal } from './_lib/rewards.js'
 import { notifyPayment } from './_lib/receipts.js'
 
@@ -92,15 +93,17 @@ async function readOgGoal(user: string, id: string): Promise<OgGoal | null> {
 }
 
 /**
- * A preview card, or the plain art when there is nothing to draw or drawing fails. The renderer (satori + resvg
- * wasm) is loaded only here, so a problem with it can never take down invoices or the preview pages.
+ * A preview card, or the plain art when there is nothing to draw or drawing fails (fonts, pictures, wasm), so a
+ * problem with the renderer never breaks a link preview. The failure is named in x-og-error for debugging.
  */
-async function drawn(draw: (m: typeof import('./_lib/og-image.js')) => Promise<Response> | null, origin: string, fallback: string) {
+async function drawn(draw: (m: typeof og) => Promise<Response> | null, origin: string, fallback: string) {
+  let error = ''
   try {
-    const res = await draw(await import('./_lib/og-image.js'))
+    const res = await draw(og)
     if (res) return res
   } catch (e) {
     console.error('og image', e)
+    error = String(e instanceof Error ? e.message : e).replace(/[^\x20-\x7e]/g, '').slice(0, 200)
   }
-  return Response.redirect(new URL(fallback, origin), 302)
+  return new Response(null, { status: 302, headers: { Location: new URL(fallback, origin).href, ...(error && { 'x-og-error': error }) } })
 }
