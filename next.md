@@ -7,6 +7,7 @@ State today (`feat/coinai-v2`): the app and the agents run on CoinAI v2: positio
 ## 1. Vercel (needs the account owner: the Vercel CLI isn't set up here)
 
 - Env: `VITE_COINAI_ADDRESS` / `COINAI_ADDRESS` must point at v2 (`0x2Cf3…F515`) or be removed so the default applies; `VITE_DEPLOY_BLOCK` stays at v1's block so old history shows; `VITE_AGENT_ADDRESS` = the agent wallet. Optional: `BADGES_ADDRESS` (defaults to `DEPLOYMENT.v2.badges`).
+- After deploying, rerun `APP_URL=… ./web/scripts/setup-telegram.sh` so the bot's menu shows the new commands (/agent, /groups, /goals, /badges, /points).
 - Then check on the deploy: invoices and Telegram receipts end to end, group link previews at `/g/:id` (OG tags), the cron's new duties (Plutus weights, Hermes dues, streaks + awarded badges), referral points after a first payment through a link.
 - A3 live-model spot check is done locally (claude-haiku-4.5: split direction 9/10, mix 0 points off). Set `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` on Vercel for the live agents.
 - Set `OPENROUTER_MODEL_RISK` and record a backup demo video.
