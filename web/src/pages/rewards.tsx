@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AwardIcon, CopyIcon, FlameIcon, GiftIcon, Loader2Icon, PlusIcon, Share2Icon, TargetIcon, Trash2Icon } from 'lucide-react'
+import { AwardIcon, CopyIcon, DownloadIcon, EyeOffIcon, FlameIcon, GiftIcon, LinkIcon, Loader2Icon, PlusIcon, Share2Icon, TargetIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConnectPrompt } from '@/components/connect-prompt'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { agentApi, hasAgentSession, publicApi, type Goal, type Rewards } from '@/lib/agent-api'
 import { useAppState } from '@/lib/app-state'
@@ -32,6 +33,8 @@ function GoalsCard({ address }: { address: string }) {
   const [goals, setGoals] = useState<Goal[] | null>(null)
   const [draft, setDraft] = useState<Draft>(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [sharing, setSharing] = useState<string | null>(null) // id of the goal in the share dialog
+  const [previewFailed, setPreviewFailed] = useState(false)
   const money = (x: number) => formatMoney(tokenUnits(x), primaryCurrency, rates, locale)
   const saved = account ? Number(totalSavings(account)) / 1e6 : 0
   const now = Date.now() / 1000
@@ -75,7 +78,27 @@ function GoalsCard({ address }: { address: string }) {
   }
   const valid = draft.name.trim() !== '' && Number(draft.target.replace(',', '.')) > 0 && Number(draft.share) >= 1 && Number(draft.share) + used <= 100
 
+  // Sharing makes the goal public (/goal/:user/:id shows its name and progress); the dialog can make it private again.
   const share = async (g: Goal) => {
+    if (!g.public && !(await save((goals ?? []).map((x) => (x.id === g.id ? { ...x, public: true } : x))))) return
+    setPreviewFailed(false)
+    setSharing(g.id)
+  }
+  const unshare = async (g: Goal) => {
+    if (await save((goals ?? []).map((x) => (x.id === g.id ? { ...x, public: false } : x)))) setSharing(null)
+  }
+  const shared = goals?.find((g) => g.id === sharing && g.public) ?? null
+  const goalLink = (g: Goal) => `${window.location.origin}/goal/${address}/${g.id}`
+  const copyLink = async (g: Goal) => {
+    await navigator.clipboard.writeText(goalLink(g))
+    toast.success(t('settings.copied'))
+  }
+  const shareLink = async (g: Goal) => {
+    if (typeof navigator.share !== 'function') return copyLink(g)
+    await navigator.share({ title: g.name, url: goalLink(g) }).catch((e: Error) => e.name !== 'AbortError' && void copyLink(g))
+  }
+
+  const downloadImage = async (g: Goal) => {
     const held = (saved * g.share) / 100
     const blob = await renderShareCard(
       {
@@ -94,14 +117,9 @@ function GoalsCard({ address }: { address: string }) {
       },
       'post',
     )
-    const file = new File([blob], 'coinai-goal.png', { type: 'image/png' })
-    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: g.name }).catch(() => {})
-    else {
-      const url = URL.createObjectURL(blob)
-      const a = Object.assign(document.createElement('a'), { href: url, download: 'coinai-goal.png' })
-      a.click()
-      URL.revokeObjectURL(url)
-    }
+    const url = URL.createObjectURL(blob)
+    Object.assign(document.createElement('a'), { href: url, download: 'coinai-goal.png' }).click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -183,6 +201,54 @@ function GoalsCard({ address }: { address: string }) {
           </>
         )}
       </CardContent>
+      <Dialog open={!!shared} onOpenChange={(open) => !open && setSharing(null)}>
+        {shared && (
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t('goals.share')}</DialogTitle>
+              <DialogDescription>{t('goals.shareHint')}</DialogDescription>
+            </DialogHeader>
+            <div className="overflow-hidden rounded-xl border bg-card/60">
+              <div className="aspect-[1200/630] bg-muted/40">
+                {previewFailed ? (
+                  <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">{t('groups.socialLinkNoPreview')}</div>
+                ) : (
+                  <img
+                    src={`${goalLink(shared)}/image.png?v=${Math.round(((saved * shared.share) / 100) * 100)}-${shared.target}`}
+                    alt={shared.name}
+                    className="h-full w-full object-cover"
+                    onError={() => setPreviewFailed(true)}
+                  />
+                )}
+              </div>
+              <div className="space-y-0.5 border-t px-3 py-2">
+                <p className="truncate text-sm font-medium">{shared.name} · coinAI</p>
+                <p className="truncate text-xs text-muted-foreground">{goalLink(shared).replace(/^https?:\/\//, '')}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" className="rounded-full" onClick={() => void copyLink(shared)}>
+                <CopyIcon className="size-4" />
+                {t('groups.socialCopyLink')}
+              </Button>
+              <Button className="rounded-full" onClick={() => void shareLink(shared)}>
+                <LinkIcon className="size-4" />
+                {t('groups.socialShareLink')}
+              </Button>
+            </div>
+            <div className="flex flex-wrap justify-between gap-2">
+              <Button variant="ghost" size="sm" onClick={() => void downloadImage(shared)}>
+                <DownloadIcon className="size-4" />
+                {t('goals.downloadImage')}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={saving} onClick={() => void unshare(shared)}>
+                <EyeOffIcon className="size-4" />
+                {t('goals.stopSharing')}
+              </Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </Card>
   )
 }
