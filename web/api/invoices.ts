@@ -1,14 +1,23 @@
 import { bearer, body, json } from './_lib/http.js'
 import { cancelInvoice, createInvoice, getInvoice, idrPerUsd, listInvoices, settleInvoice } from './_lib/invoices.js'
 import { ogPage, readOgFund } from './_lib/og.js'
+import { ogImage } from './_lib/og-image.js'
 import { notifyPayment } from './_lib/receipts.js'
 
 // Invoices (roadmap F3). The 12th and last function the Hobby plan allows: keep new routes as actions here.
 // GET ?id=<id> → { invoice, idrPerUsd } (public: the pay page)
 // GET with Authorization: Bearer <token> → { invoices } (the merchant's last 50)
 // GET ?og=<groupId> → the link-preview page for a shared group (vercel.json rewrites /g/:id here)
+// GET ?ogimg=<groupId> → that page's preview image, the group's card as a PNG (/g/:id/image.png)
 export async function GET(req: Request) {
   const url = new URL(req.url)
+  const ogimg = url.searchParams.get('ogimg')
+  if (ogimg !== null) {
+    const groupId = Number.parseInt(ogimg, 10)
+    const fund = Number.isSafeInteger(groupId) && groupId >= 0 ? await readOgFund(groupId).catch(() => null) : null
+    if (!fund) return Response.redirect(new URL('/landing/agents.jpg', url.origin), 302)
+    return ogImage(fund, url.origin)
+  }
   const og = url.searchParams.get('og')
   if (og !== null) {
     const groupId = Number.parseInt(og, 10)
