@@ -1,4 +1,4 @@
-import type { AgentPolicy, CoinAIAccount, CoinAIService } from '@/lib/types'
+import { POSITIONS, YIELD_TARGETS, type AgentPolicy, type CoinAIAccount, type CoinAIService } from '@/lib/types'
 
 const LATENCY_MS = 800
 const DEFAULT_SPLIT_BPS = 2000
@@ -6,7 +6,16 @@ const BPS_DENOMINATOR = 10_000n
 
 const accounts = new Map<string, CoinAIAccount>()
 const agents = new Map<string, AgentPolicy>()
-const NO_AGENT: AgentPolicy = { agent: null, minSplitBps: 0, maxSplitBps: 0, expiry: 0n }
+const NO_AGENT: AgentPolicy = {
+  agent: null,
+  skills: 0,
+  minSplitBps: 0,
+  maxSplitBps: 0,
+  payBudget: 0n,
+  paidInWindow: 0n,
+  windowStart: 0n,
+  expiry: 0n,
+}
 
 function delay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, LATENCY_MS))
@@ -15,11 +24,20 @@ function delay(): Promise<void> {
 function account(user: string): CoinAIAccount {
   let acc = accounts.get(user)
   if (!acc) {
-    acc = { splitBps: DEFAULT_SPLIT_BPS, spend: 0n, shares: 0n, lockUntil: 0n, yieldTarget: 'balanced' }
+    acc = {
+      splitBps: DEFAULT_SPLIT_BPS,
+      spend: 0n,
+      idle: 0n,
+      lockUntil: 0n,
+      positions: Object.fromEntries(POSITIONS.map((p) => [p, 0n])) as CoinAIAccount['positions'],
+      vaultShares: Object.fromEntries(YIELD_TARGETS.map((t) => [t, 0n])) as CoinAIAccount['vaultShares'],
+    }
     accounts.set(user, acc)
   }
   return acc
 }
+
+const copy = (acc: CoinAIAccount): CoinAIAccount => ({ ...acc, positions: { ...acc.positions }, vaultShares: { ...acc.vaultShares } })
 
 function nowSeconds(): bigint {
   return BigInt(Math.floor(Date.now() / 1000))
@@ -30,37 +48,98 @@ function mockHash(): string {
   return Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
 }
 
+function route(to: string, amount: bigint) {
+  const acc = account(to)
+  const saved = (amount * BigInt(acc.splitBps)) / BPS_DENOMINATOR
+  acc.idle += saved
+  acc.spend += amount - saved
+}
+
+// Same error format the EVM service surfaces for contract reverts, so errorKey maps it.
+const fail = (code: number): never => {
+  throw new Error(`Error(Contract, #${code})`)
+}
+
 export const coinaiMock: CoinAIService = {
   async getAccount(user) {
     await delay()
-    return { ...account(user) }
+    return copy(account(user))
   },
 
   async pay(_from, to, amount) {
     await delay()
-    const acc = account(to)
-    const saved = (amount * BigInt(acc.splitBps)) / BPS_DENOMINATOR
-    acc.shares += saved // mock vault mints shares 1:1 with deposited tUSDT
-    acc.spend += amount - saved
+    route(to, amount)
+    return { hash: mockHash() }
+  },
+
+  async payMany(_from, rows) {
+    await delay()
+    if (rows.length === 0 || rows.some((r) => r.amount <= 0n)) fail(1)
+    if (rows.length > 50) fail(16)
+    for (const r of rows) route(r.to, r.amount)
     return { hash: mockHash() }
   },
 
   async withdrawSpend(user, amount) {
     await delay()
     const acc = account(user)
-    // same format the SDK surfaces for real contract failures, so errorKey maps it
-    if (amount > acc.spend) throw new Error('Error(Contract, #3)')
+    if (amount > acc.spend) fail(3)
     acc.spend -= amount
     return { hash: mockHash() }
   },
 
-  async withdrawSavings(user, shares) {
+  async withdrawSavings(user, amount) {
     await delay()
     const acc = account(user)
-    if (acc.lockUntil > nowSeconds()) throw new Error('Error(Contract, #5)')
-    if (shares > acc.shares) throw new Error('Error(Contract, #4)')
-    acc.shares -= shares
-    return { amount: shares, hash: mockHash() } // 1:1 redemption in mock
+    if (acc.lockUntil > nowSeconds()) fail(5)
+    if (amount > acc.idle) fail(4)
+    acc.idle -= amount
+    return { amount, hash: mockHash() }
+  },
+
+  async investSavings(user, amount, target) {
+    await delay()
+    const acc = account(user)
+    if (amount > acc.idle) fail(4)
+    acc.idle -= amount
+    acc.positions[target] += amount // 1:1 in the mock
+    if (target !== 'basket') acc.vaultShares[target] += amount
+    return { amountIn: amount, amountOut: amount, hash: mockHash() }
+  },
+
+  async withdrawPosition(user, target, amount) {
+    await delay()
+    const acc = account(user)
+    if (acc.lockUntil > nowSeconds()) fail(5)
+    const held = acc.positions[target]
+    const out = amount === 'all' ? held : amount
+    if (out === 0n) fail(7)
+    if (out > held) fail(4)
+    acc.positions[target] -= out
+    if (target !== 'basket') acc.vaultShares[target] -= out
+    return { amount: out, hash: mockHash() }
+  },
+
+  async rebalance(user, from, to, amount) {
+    await delay()
+    const acc = account(user)
+    if (from === to) fail(15)
+    const out = amount === 'all' ? acc.positions[from] : amount
+    if (out === 0n) fail(7)
+    if (out > acc.positions[from]) fail(4)
+    acc.positions[from] -= out
+    acc.positions[to] += out
+    if (from !== 'basket') acc.vaultShares[from] -= out
+    if (to !== 'basket') acc.vaultShares[to] += out
+    return { hash: mockHash() }
+  },
+
+  async contributeFromSpend(user, _fundId, amount) {
+    await delay()
+    const acc = account(user)
+    if (amount > acc.spend) fail(3)
+    acc.spend -= amount
+    return { hash: mockHash() }
   },
 
   async setSplit(user, bps) {
@@ -75,33 +154,15 @@ export const coinaiMock: CoinAIService = {
     return { hash: mockHash() }
   },
 
-  async setYieldTarget(user, target) {
+  async getAgent(user, agent) {
     await delay()
-    const acc = account(user)
-    if (acc.shares > 0n) throw new Error('Error(Contract, #9)')
-    acc.yieldTarget = target
-    return { hash: mockHash() }
+    return agents.get(`${user}:${agent}`.toLowerCase()) ?? NO_AGENT
   },
 
-  async investSavings(user, amount, target) {
+  async listAgents(user) {
     await delay()
-    const acc = account(user)
-    if (acc.lockUntil > nowSeconds()) throw new Error('Error(Contract, #5)')
-    if (amount > acc.shares) throw new Error('Error(Contract, #4)')
-    acc.shares -= amount
-    acc.yieldTarget = target
-    return { amountIn: amount, amountOut: amount, hash: mockHash() } // 1:1 vault shares in mock
-  },
-
-  async withdrawFromVault() {
-    await delay()
-    // the mock keeps no vault positions (lib/yield.ts shows them empty), so there's nothing to take out
-    throw new Error('Error(Contract, #7)')
-  },
-
-  async getAgent(user) {
-    await delay()
-    return agents.get(user) ?? NO_AGENT
+    const prefix = `${user}:`.toLowerCase()
+    return [...agents].filter(([k]) => k.startsWith(prefix)).map(([, p]) => p)
   },
 
   async getStats() {
@@ -109,16 +170,16 @@ export const coinaiMock: CoinAIService = {
     return { totalReceived: 0n, paymentCount: 0, lastPaymentAt: 0n }
   },
 
-  async setAgent(user, agent, minSplitBps, maxSplitBps, expiry) {
+  async setAgent(user, agent, g) {
     await delay()
-    if (minSplitBps > maxSplitBps || maxSplitBps > 10_000 || expiry <= nowSeconds()) throw new Error('Error(Contract, #13)')
-    agents.set(user, { agent, minSplitBps, maxSplitBps, expiry })
+    if (g.skills === 0 || g.skills > 7 || g.minSplitBps > g.maxSplitBps || g.maxSplitBps > 10_000 || g.expiry <= nowSeconds()) fail(13)
+    agents.set(`${user}:${agent}`.toLowerCase(), { ...NO_AGENT, ...g, agent })
     return { hash: mockHash() }
   },
 
-  async revokeAgent(user) {
+  async revokeAgent(user, agent) {
     await delay()
-    agents.delete(user)
+    if (!agents.delete(`${user}:${agent}`.toLowerCase())) fail(12)
     return { hash: mockHash() }
   },
 }
