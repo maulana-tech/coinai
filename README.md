@@ -10,7 +10,7 @@
 
 ---
 
-![coinAI demo — landing, dashboard and the AI agent team](docs/assets/demo.gif)
+![coinAI in 12 seconds: landing, the agent council, the 80/20 split on the dashboard, agent permissions, pool builder and a new group](docs/assets/demo.gif)
 
 ## Demo
 
