@@ -3,19 +3,17 @@ import { TokenIcon } from '@/components/brand/token-icon'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { YieldRouteBadge } from '@/components/yield-route-badge'
 import { tokenToInput } from '@/lib/format'
 import { formatMoney, useT } from '@/lib/i18n'
 import type { FxRates } from '@/lib/rates'
 import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
-import { computeSavingsPosition, principalOnChain, savingsHistory, totalInvested, type Vaults } from '@/lib/yield'
+import { POSITION_NAME, savingsHistory, savingsPosition } from '@/lib/yield'
 import type { ActivityItem } from '@/lib/activity'
-import type { CoinAIAccount } from '@/lib/types'
+import { POSITIONS, type CoinAIAccount } from '@/lib/types'
 
 type YieldPositionCardProps = {
   account: CoinAIAccount | null
   activity: ActivityItem[]
-  vaults: Vaults | null
   loading: boolean
   rates: FxRates
 }
@@ -60,7 +58,6 @@ function Stat({
 export function YieldPositionCard({
   account,
   activity,
-  vaults,
   loading,
   rates,
 }: YieldPositionCardProps) {
@@ -87,12 +84,8 @@ export function YieldPositionCard({
     )
   }
 
-  // idle savings in CoinAI + what the user holds across the vaults
-  const currentValue = vaults ? account.shares + totalInvested(vaults) : null
-  const sharePrice = vaults ? vaults[account.yieldTarget].sharePrice : null
-  const position = vaults
-    ? { principal: principalOnChain(account.shares, vaults), currentValue, earnings: currentValue! - principalOnChain(account.shares, vaults) }
-    : computeSavingsPosition(activity, currentValue)
+  // idle savings in coinAI + every position it holds for the user
+  const position = savingsPosition(account)
   const earningsTone = position.earnings !== null && position.earnings > 0n ? 'gold' : 'muted'
   const history = savingsHistory(activity)
 
@@ -100,7 +93,6 @@ export function YieldPositionCard({
     <Card className="rounded-2xl shadow-none">
       <CardHeader>
         <CardTitle>{t('yield.positionTitle')}</CardTitle>
-        <YieldRouteBadge target={account.yieldTarget} className="mt-2" />
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-3 gap-4">
@@ -145,14 +137,13 @@ export function YieldPositionCard({
         )}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
           <span>
-            {t('yield.shares')}: <span className="tabular-nums">{tokenToInput(account.shares)}</span>
+            {t('portfolio.idle')}: <span className="tabular-nums">{tokenToInput(account.idle)}</span>
           </span>
-          <span>
-            {t('yield.sharePrice')}:{' '}
-            <span className="tabular-nums">
-              {sharePrice === null ? '-' : tokenToInput(sharePrice)}
+          {POSITIONS.filter((p) => account.positions[p] > 0n).map((p) => (
+            <span key={p}>
+              {t(POSITION_NAME[p])}: <span className="tabular-nums">{tokenToInput(account.positions[p])}</span>
             </span>
-          </span>
+          ))}
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {t('yield.estimateHint')} {t('yield.earningsCaption')} {t('yield.simulatedNote')}
