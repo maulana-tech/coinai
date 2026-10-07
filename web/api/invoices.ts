@@ -4,7 +4,6 @@ import { isAddress, getAddress } from 'ethers'
 import { POSITIONS } from './_lib/guard.js'
 import { readUserState } from './_lib/chain.js'
 import { ogGoalPage, ogPage, readOgFund, type OgGoal } from './_lib/og.js'
-import { goalImage, ogImage } from './_lib/og-image.js'
 import { goalProgress, publicGoal } from './_lib/rewards.js'
 import { notifyPayment } from './_lib/receipts.js'
 
@@ -22,7 +21,7 @@ export async function GET(req: Request) {
     if (!isAddress(owner) || !/^[a-z0-9-]{1,40}$/.test(goalId)) return Response.redirect(new URL('/', url.origin), 302)
     const user = getAddress(owner)
     const goal = await readOgGoal(user, goalId).catch(() => null)
-    if (url.searchParams.has('goalimg')) return goal ? goalImage(goal, url.origin) : Response.redirect(new URL('/landing/save.jpg', url.origin), 302)
+    if (url.searchParams.has('goalimg')) return drawn((m) => goal && m.goalImage(goal, url.origin), url.origin, '/landing/save.jpg')
     return new Response(ogGoalPage(goal, user, goalId, url.origin), {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60, s-maxage=300' },
     })
@@ -31,8 +30,7 @@ export async function GET(req: Request) {
   if (ogimg !== null) {
     const groupId = Number.parseInt(ogimg, 10)
     const fund = Number.isSafeInteger(groupId) && groupId >= 0 ? await readOgFund(groupId).catch(() => null) : null
-    if (!fund) return Response.redirect(new URL('/landing/agents.jpg', url.origin), 302)
-    return ogImage(fund, url.origin)
+    return drawn((m) => fund && m.ogImage(fund, url.origin), url.origin, '/landing/agents.jpg')
   }
   const og = url.searchParams.get('og')
   if (og !== null) {
@@ -91,4 +89,18 @@ async function readOgGoal(user: string, id: string): Promise<OgGoal | null> {
   const s = await readUserState(user)
   const savings = Number(POSITIONS.reduce((sum, p) => sum + s.positions[p], s.savings)) / 1e6
   return { name: goal.name, target: goal.target, deadline: goal.deadline, saved: goalProgress(goal, savings, s.now).saved }
+}
+
+/**
+ * A preview card, or the plain art when there is nothing to draw or drawing fails. The renderer (satori + resvg
+ * wasm) is loaded only here, so a problem with it can never take down invoices or the preview pages.
+ */
+async function drawn(draw: (m: typeof import('./_lib/og-image.js')) => Promise<Response> | null, origin: string, fallback: string) {
+  try {
+    const res = await draw(await import('./_lib/og-image.js'))
+    if (res) return res
+  } catch (e) {
+    console.error('og image', e)
+  }
+  return Response.redirect(new URL(fallback, origin), 302)
 }
