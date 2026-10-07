@@ -3,7 +3,8 @@ import { explorerTx, paymentCountOf, paymentFromTx, readUserState } from '../_li
 import { policyActive } from '../_lib/guard.js'
 import { body, json } from '../_lib/http.js'
 import { kv } from '../_lib/kv.js'
-import { getSub, sendTelegram } from '../_lib/notify.js'
+import { referralText } from '../_lib/bot.js'
+import { getSub, notifyUser, sendTelegram } from '../_lib/notify.js'
 import { notifyPayment } from '../_lib/receipts.js'
 import { creditReferral, rewardsOf } from '../_lib/rewards.js'
 import { runSwarm } from '../_lib/swarm.js'
@@ -39,7 +40,12 @@ export async function POST(req: Request) {
       await notifyPayment(payment).catch((e) => console.error('receipt', e))
       // statsOf counts payments received, so paying doesn't change the payer's count: 0 means they're new to coinAI
       const count = await paymentCountOf(payment.from).catch(() => 1)
-      await creditReferral(payment.from, user, count).catch((e) => console.error('referral', e))
+      const credited = await creditReferral(payment.from, user, count).catch((e) => console.error('referral', e))
+      if (credited)
+        await Promise.all([
+          notifyUser(user, (l) => referralText('referrer', payment.from, l)),
+          notifyUser(payment.from, (l) => referralText('newcomer', user, l)),
+        ])
     }
   }
   if (!policyActive(s)) return json({ ran: false, reason: 'agent_not_enabled' })
