@@ -1,10 +1,10 @@
-// The image a shared group link unfolds into (1200×630, og:image of /g/:id): the same card style as the in-app
-// share card (share-card.ts), drawn on the server from the chain so WhatsApp, Telegram, X and Facebook show the
-// live numbers without anyone downloading anything.
+// The image a shared group or goal link unfolds into (1200×630, og:image of /g/:id and /goal/:user/:id): the same
+// card style as the in-app share card (share-card.ts), drawn on the server from the chain so WhatsApp, Telegram, X
+// and Facebook show the live numbers without anyone downloading anything.
 
 import { Resvg } from '@resvg/resvg-js'
 import satori from 'satori'
-import { day, IMAGE, usdt, type OgFund } from './og.js'
+import { day, IMAGE, usdt, type OgFund, type OgGoal } from './og.js'
 
 type Node = { type: string; props: Record<string, unknown> }
 const h = (type: string, style: Record<string, unknown>, ...children: (Node | string | null | false)[]): Node => ({
@@ -27,8 +27,10 @@ export function ogStatus(f: OgFund, now = Date.now() / 1000): string {
   return f.deadline !== 0 && now > f.deadline ? 'Selesai' : 'Terbuka'
 }
 
-/** The lines the card shows, kept apart from the drawing so they can be tested. */
-export function ogCard(f: OgFund) {
+export type Card = { label: string; status: string; title: string; amount: string; amountOf: string; progress: number | null; done: boolean; meta: string; cta: string }
+
+/** The lines a group's card shows, kept apart from the drawing so they can be tested. */
+export function ogCard(f: OgFund): Card {
   const progress = f.target > 0n ? Math.min(1, Number((f.raised * 1000n) / f.target) / 1000) : null
   const meta =
     f.kind === 'iuran'
@@ -47,6 +49,25 @@ export function ogCard(f: OgFund) {
   }
 }
 
+const tusdt = (x: number) => `${x.toLocaleString('id-ID', { maximumFractionDigits: 2 })} tUSDT`
+
+/** The lines a savings goal's card shows. */
+export function goalCard(g: OgGoal, now = Date.now() / 1000): Card {
+  const progress = Math.min(1, g.saved / g.target)
+  const left = g.deadline ? Math.ceil((g.deadline - now) / 86_400) : null
+  return {
+    label: 'MENABUNG UNTUK',
+    status: progress >= 1 ? 'Tercapai' : left === null ? 'Tanpa tenggat' : left > 0 ? `${left} hari lagi` : 'Lewat tenggat',
+    title: g.name,
+    amount: tusdt(g.saved),
+    amountOf: `dari ${tusdt(g.target)}`,
+    progress,
+    done: progress >= 1,
+    meta: `${Math.floor(progress * 100)}% · otomatis dari setiap pembayaran${g.deadline ? ` · tenggat ${day(g.deadline)}` : ''}`,
+    cta: 'Bayar saya di coinAI',
+  }
+}
+
 // Google Fonts serves TrueType to a client that sends no browser user agent; `text=` keeps each file tiny.
 async function font(family: string, weight: number, text: string): Promise<ArrayBuffer> {
   const css = await (await fetch(`https://fonts.googleapis.com/css2?family=${family.replace(/ /g, '+')}:wght@${weight}&text=${encodeURIComponent(text)}`)).text()
@@ -55,8 +76,10 @@ async function font(family: string, weight: number, text: string): Promise<Array
   return (await fetch(src)).arrayBuffer()
 }
 
-export async function ogImage(f: OgFund, origin: string): Promise<Response> {
-  const c = ogCard(f)
+export const ogImage = (f: OgFund, origin: string) => drawCard(ogCard(f), IMAGE[f.kind], origin)
+export const goalImage = (g: OgGoal, origin: string) => drawCard(goalCard(g), '/landing/save.jpg', origin)
+
+async function drawCard(c: Card, art: string, origin: string): Promise<Response> {
   const host = origin.replace(/^https?:\/\//, '')
   const sans = `coinAI${c.status}${c.amount}${c.amountOf}${c.meta}${c.cta}${host}/g/0123456789`
   const [serif, sansMid, sansBold, mono] = await Promise.all([
@@ -70,7 +93,7 @@ export async function ogImage(f: OgFund, origin: string): Promise<Response> {
     'div',
     { width: W, height: H, position: 'relative', color: '#fff', fontFamily: 'DM Sans', backgroundColor: '#0b0b0b' },
     // the art only on the right: a photo behind the text would double the PNG (chat apps skip large previews)
-    { type: 'img', props: { src: `${origin}${IMAGE[f.kind]}`, width: ART, height: H, style: { position: 'absolute', top: 0, right: 0, width: ART, height: H, objectFit: 'cover' } } },
+    { type: 'img', props: { src: `${origin}${art}`, width: ART, height: H, style: { position: 'absolute', top: 0, right: 0, width: ART, height: H, objectFit: 'cover' } } },
     h('div', { position: 'absolute', top: 0, right: ART - 160, width: 160, height: H, backgroundImage: 'linear-gradient(90deg, #0b0b0b 0%, rgba(11,11,11,0.6) 50%, rgba(11,11,11,0) 100%)' }),
     h(
       'div',
