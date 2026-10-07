@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRightIcon, BotIcon, Loader2Icon, LockIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityList } from '@/components/activity-list'
+import { BasketCard } from '@/components/basket-card'
 import { DecisionCard } from '@/components/decision-card'
 import { EvaluationCard } from '@/components/evaluation-card'
 import { ConnectPrompt } from '@/components/connect-prompt'
@@ -16,8 +17,7 @@ import { coinai } from '@/lib/coinai'
 import { AGENT_ADDRESS } from '@/lib/config'
 import { formatDate, formatMoney, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
-import { YIELD_TARGETS, type AgentPolicy } from '@/lib/types'
-import { useYieldData } from '@/lib/use-yield-data'
+import { POSITIONS, type AgentPolicy } from '@/lib/types'
 import { useWallet } from '@/lib/wallet'
 
 const REGIME: Record<MarketAnalysis['regime'], MessageKey> = {
@@ -42,14 +42,13 @@ function Portfolio({ address }: { address: string }) {
   const t = useT()
   const { locale, primaryCurrency } = useSettings()
   const { account, activity, activityLoading, rates, refresh } = useAppState()
-  const { vaults, refresh: refreshVaults } = useYieldData(address)
   const [policy, setPolicy] = useState<AgentPolicy | null>(null)
   const [runs, setRuns] = useState<AgentRun[] | null>(null)
   const [profile, setProfile] = useState<InvestorProfile | null>(null)
   const [running, setRunning] = useState(false)
 
   useEffect(() => {
-    coinai.getAgent(address).then(setPolicy).catch(() => setPolicy(null))
+    coinai.getAgent(address, AGENT_ADDRESS).then(setPolicy).catch(() => setPolicy(null))
   }, [address])
 
   // The plan lives in the agent backend; load it silently if already signed in, else on request.
@@ -67,13 +66,13 @@ function Portfolio({ address }: { address: string }) {
   }, [address, loadPlan])
 
   const money = (x: bigint) => formatMoney(x, primaryCurrency, rates, locale)
-  const invested = vaults ? YIELD_TARGETS.reduce((s, k) => s + vaults[k].position, 0n) : 0n
-  const idle = account?.shares ?? 0n
+  const invested = account ? POSITIONS.reduce((s, k) => s + account.positions[k], 0n) : 0n
+  const idle = account?.idle ?? 0n
   const locked = !!account && Number(account.lockUntil) * 1000 > Date.now()
   const agentOn = isAgentActive(policy)
   const plan = runs?.find((r) => r.allocation) ?? null
   const reason = plan?.steps.find((s) => s.agent === 'investment' && s.proposal)?.proposal?.reason
-  const investHistory = activity.filter((i) => i.kind === 'agent' && i.agentAction === 'invest')
+  const investHistory = activity.filter((i) => i.kind === 'agent' && (i.agentAction === 'invest' || i.agentAction === 'rebalance'))
 
   const apply = async () => {
     setRunning(true)
@@ -81,7 +80,6 @@ function Portfolio({ address }: { address: string }) {
       const run = await agentApi.run(address, locale)
       setRuns((r) => [run, ...(r ?? [])])
       void refresh()
-      void refreshVaults()
       const failure = runFailure(run)
       if (failure) toast.error(t(`agent.llm_${failure}` as MessageKey), { description: t('agent.llmNothingChanged') })
       else toast.success(t('portfolio.applied', { n: run.executed.length }))
@@ -137,8 +135,8 @@ function Portfolio({ address }: { address: string }) {
       <Card className="rounded-2xl shadow-none">
         <CardContent className="space-y-5">
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 sm:gap-0 sm:divide-x [&>*]:sm:px-5 [&>*:first-child]:sm:pl-0">
-          <Stat label={t('portfolio.total')} value={account && vaults ? money(idle + invested) : '-'} />
-          <Stat label={t('portfolio.invested')} value={vaults ? money(invested) : '-'} />
+          <Stat label={t('portfolio.total')} value={account ? money(idle + invested) : '-'} />
+          <Stat label={t('portfolio.invested')} value={account ? money(invested) : '-'} />
           <Stat label={t('portfolio.idle')} value={account ? money(idle) : '-'} />
           <Stat
             label={t('portfolio.agent')}
@@ -151,7 +149,7 @@ function Portfolio({ address }: { address: string }) {
       </Card>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <DecisionCard runs={runs} vaults={vaults} onLoad={() => void loadPlan()} />
+        <DecisionCard runs={runs} onLoad={() => void loadPlan()} />
 
         {/* Why */}
         <Card className="flex flex-col rounded-2xl shadow-none">
@@ -179,7 +177,7 @@ function Portfolio({ address }: { address: string }) {
             )}
             {reason && (
               <div className="border-l-2 border-primary pl-3">
-                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agent.roleInvestment')}</p>
+                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Athena · {t('agent.roleInvestment')}</p>
                 <p className="mt-1">{reason}</p>
               </div>
             )}
@@ -208,6 +206,8 @@ function Portfolio({ address }: { address: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <BasketCard address={address} />
 
       <EvaluationCard />
 
