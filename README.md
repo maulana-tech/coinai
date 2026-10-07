@@ -12,6 +12,25 @@
 
 ![coinAI demo — landing, dashboard and the AI agent team](docs/assets/demo.gif)
 
+## Demo video
+
+[![Watch the 46-second walkthrough of coinai-gamma.vercel.app](docs/assets/demo/hero.jpg)](docs/assets/demo-landing.mp4)
+
+**[▶ Watch the walkthrough (MP4, 46 s, 6.6 MB)](docs/assets/demo-landing.mp4)**: a scroll through the live site, [coinai-gamma.vercel.app](https://coinai-gamma.vercel.app), ending in the app. Every number in it is read from BNB Smart Chain Testnet. None of it is mock data.
+
+| Time | What you see | Still |
+|---|---|---|
+| 0:00 | **Hero.** "coinAI makes money grow": each payment splits itself into a spendable part and a savings part, and an AI team puts the savings to work inside limits you sign. | <img src="docs/assets/demo/hero.jpg" width="260"> |
+| 0:03 | **We save it / they grow it.** The auto-split happens the moment a payment lands, then the agents invest idle savings into vaults. | <img src="docs/assets/demo/save.jpg" width="260"> |
+| 0:06 | **The council.** "Twelve at the table, one job: your money." A looping film of the twelve agents, each with a Greek name. | <img src="docs/assets/demo/council.jpg" width="260"> |
+| 0:09 | **Zeus → Apollo → Demeter.** You scroll through the agents one at a time. Each card says what the agent does, what it runs on (an LLM or plain code), when it runs, and the contract call it may make. | <img src="docs/assets/demo/apollo.jpg" width="260"> |
+| 0:15 | **Perseus (risk check) and Heracles (executor).** Every proposal is checked against your on-chain limits before gas is spent, and only approved moves are sent from the agent wallet. | <img src="docs/assets/demo/perseus.jpg" width="260"> |
+| 0:27 | **Plutus and Poseidon.** Plutus curates the AI Smart Money basket (tUSDT, BNB, BTC, ETH, CAKE) with Chainlink prices and caps enforced by the contract. Poseidon keeps the group-fund rules. | <img src="docs/assets/demo/plutus.jpg" width="260"> |
+| 0:33 | **We save together.** Group funds: patungan (all or nothing), iuran (fixed dues per period) and donasi (open fundraiser), each rule enforced by `GroupFunds`. | <img src="docs/assets/demo/group-kinds.jpg" width="260"> |
+| 0:36 | **Live on chain.** The group cards ("Bantu banjir Bekasi", "Trip ke Bali", "Kas RT 05") are read live from the `GroupFunds` contract. | <img src="docs/assets/demo/groups.jpg" width="260"> |
+| 0:39 | **No custody, only guardrails.** The agent can change your split and move savings between your own positions. It has no function that sends funds anywhere else, and every decision is on the record. | <img src="docs/assets/demo/guardrails.jpg" width="260"> |
+| 0:44 | **Open the app.** The dashboard shell: Money, Invest, AI team, Together, More. Connect a wallet to start. | <img src="docs/assets/demo/app.jpg" width="260"> |
+
 ## The problem
 
 Saving depends on willpower. Money lands in one place and stays there until it is spent, and even people who do save leave it idle because picking where to put it is one more chore. "AI finance agents" promise to help, but handing an LLM your wallet is a non-starter.
