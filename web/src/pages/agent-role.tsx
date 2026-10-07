@@ -15,21 +15,17 @@ import { agentApi, hasAgentSession, type AgentRun, type InvestorProfile } from '
 import { AGENT_ROLES, type AgentRole } from '@/lib/agent-roles'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
-import { explorerAddressUrl, explorerTxUrl } from '@/lib/config'
+import { AGENT_ADDRESS, explorerAddressUrl, explorerTxUrl } from '@/lib/config'
 import { formatDate, formatDateTime, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
-import { YIELD_TARGETS, type AgentPolicy, type YieldTarget } from '@/lib/types'
+import { YIELD_TARGETS, type AgentPolicy } from '@/lib/types'
 import { useMarket } from '@/lib/use-market'
 import { useYieldData } from '@/lib/use-yield-data'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
+import { mainVault, POSITION_NAME } from '@/lib/yield'
+import { DEPLOYMENT } from '../../shared/deployment.js'
 import { NotificationsCard, StepRow } from '@/pages/agent'
-
-const VAULT_NAME_KEY: Record<YieldTarget, MessageKey> = {
-  conservative: 'yield.sourceConservativeName',
-  balanced: 'yield.sourceBalancedName',
-  growth: 'yield.sourceGrowthName',
-}
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -56,7 +52,7 @@ function useAgentRuns(address: string) {
 function usePolicy(address: string) {
   const [policy, setPolicy] = useState<AgentPolicy | null>(null)
   useEffect(() => {
-    coinai.getAgent(address).then(setPolicy).catch(() => setPolicy(null))
+    coinai.getAgent(address, AGENT_ADDRESS).then(setPolicy).catch(() => setPolicy(null))
   }, [address])
   return policy
 }
@@ -237,16 +233,15 @@ function ProfileCard({ address }: { address: string }) {
 }
 
 function InvestmentPanel({ address, runs }: { address: string; runs: AgentRun[] | null }) {
-  const { rates } = useAppState()
-  const { account } = useAppState()
-  const { vaults, loading } = useYieldData(address)
+  const { account, rates } = useAppState()
+  const { vaults, loading } = useYieldData()
   return (
     <>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ProfileCard address={address} />
-        <DecisionCard runs={runs} vaults={vaults} />
+        <DecisionCard runs={runs} />
       </div>
-      <YieldSourcesCard vaults={vaults} loading={loading} rates={rates} selectedTarget={account?.yieldTarget} readOnly />
+      <YieldSourcesCard vaults={vaults} loading={loading} rates={rates} selectedTarget={mainVault(account)} />
     </>
   )
 }
@@ -256,7 +251,7 @@ function GuardrailsPanel({ address }: { address: string }) {
   const { locale } = useSettings()
   const { account } = useAppState()
   const policy = usePolicy(address)
-  const { vaults } = useYieldData(address)
+  const { vaults } = useYieldData()
   const locked = account && Number(account.lockUntil) * 1000 > Date.now()
   const rules: { label: MessageKey; value: string }[] = [
     { label: 'agent.rangeLabel', value: policy?.agent ? `${policy.minSplitBps / 100}% – ${policy.maxSplitBps / 100}%` : t('agentRole.notSet') },
@@ -282,7 +277,7 @@ function GuardrailsPanel({ address }: { address: string }) {
           <ul className="mt-2 space-y-1.5">
             {YIELD_TARGETS.map((target) => (
               <li key={target} className="flex items-center justify-between gap-3 text-sm">
-                {t(VAULT_NAME_KEY[target])}
+                {t(POSITION_NAME[target])}
                 {vaults?.[target].address ? (
                   <a
                     href={explorerAddressUrl(vaults[target].address)}
@@ -298,6 +293,18 @@ function GuardrailsPanel({ address }: { address: string }) {
                 )}
               </li>
             ))}
+            <li className="flex items-center justify-between gap-3 text-sm">
+              {t(POSITION_NAME.basket)}
+              <a
+                href={explorerAddressUrl(DEPLOYMENT.v2.basketVault)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-xs text-primary-ink hover:underline"
+              >
+                {DEPLOYMENT.v2.basketVault.slice(0, 6)}…{DEPLOYMENT.v2.basketVault.slice(-4)}
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            </li>
           </ul>
         </div>
         <ul className="space-y-1.5 border-t pt-3 text-sm text-muted-foreground">
@@ -433,7 +440,9 @@ function RoleView({ role, address }: { role: AgentRole; address: string }) {
           <role.icon className="size-5 text-accent-foreground" />
         </span>
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">{t(role.name)}</h2>
+          <h2 className="text-lg font-semibold tracking-tight">
+            {role.god} <span className="font-normal text-muted-foreground">· {t(role.name)}</span>
+          </h2>
           <p className="text-sm text-muted-foreground">{t(role.tagline)}</p>
         </div>
       </header>
