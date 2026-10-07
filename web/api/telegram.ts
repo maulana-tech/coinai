@@ -5,7 +5,8 @@ import { vaultMix } from '../shared/pool.js'
 import { json } from './_lib/http.js'
 import { kv } from './_lib/kv.js'
 import { getSub, sendTelegram, sendTyping, setSub } from './_lib/notify.js'
-import { getMarket, getMarketAnalysis, runSwarm } from './_lib/swarm.js'
+import { agentText, badgesText, goalsText, groupsText, pointsText } from './_lib/bot.js'
+import { asLocale, getMarket, getMarketAnalysis, runSwarm } from './_lib/swarm.js'
 
 // Telegram bot webhook: chat with coinAI (same advisor as the web chat) + commands.
 // Register once with web/scripts/setup-telegram.sh.
@@ -15,33 +16,85 @@ const HELP_EN = `coinAI — your AI savings & investing team on BNB Chain.
 
 Just type to chat, e.g. "how are my savings?", "how did NVIDIA do lately?" or "use Pool 1 Aggressive as the benchmark".
 
-/portfolio — savings, vault positions and the AI's strategy
-/pools — your saved pools (from the Market page)
-/use <pool name> — make a pool the AI benchmark (/use off to stop)
+Money
+/portfolio — savings, positions (vaults + AI Smart Money basket) and the AI's strategy
 /deposit — how to add tUSDT or tBNB
 /market — live market read (BNB, BTC, ETH, CAKE)
+
+Agents
+/agent — what your agents may do: skills, split range, dues budget, Hermes
 /run — run the agent team now
 /report — today's savings report
+/pools — your saved pools (from the Market page)
+/use <pool name> — make a pool the AI benchmark (/use off to stop)
+
+Together & rewards
+/groups — your groups: dues due, chip-ins, fundraisers
+/goals — your savings goals and how far they are
+/badges — your badges and saving streak
+/points — referral points and your payment link
+
 /reset — clear the conversation (web + Telegram)
 /stop — stop daily reports and unlink
 
+You also get a message when a friend joins through your link, a badge is minted, a goal is reached, or Hermes pays your dues.
 Connect your wallet in the coinAI app (AI Agent → Daily report & reminders → Connect Telegram).`
 
 const HELP_ID = `coinAI — tim AI tabungan & investasimu di BNB Chain.
 
 Langsung ketik untuk chat, misalnya "gimana tabunganku?", "gimana performa NVIDIA belakangan ini?" atau "pakai Pool 1 Agresif sebagai patokan".
 
-/portfolio — tabungan, posisi vault, dan strategi AI
-/pools — pool tersimpanmu (dari halaman Pasar)
-/use <nama pool> — jadikan pool patokan AI (/use off untuk melepas)
+Uang
+/portfolio — tabungan, posisi (vault + keranjang AI Smart Money), dan strategi AI
 /deposit — cara setor tUSDT atau tBNB
 /market — kondisi market live (BNB, BTC, ETH, CAKE)
+
+Agen
+/agent — apa yang boleh dilakukan agenmu: skill, rentang split, anggaran iuran, Hermes
 /run — jalankan tim agen sekarang
 /report — laporan tabungan hari ini
+/pools — pool tersimpanmu (dari halaman Pasar)
+/use <nama pool> — jadikan pool patokan AI (/use off untuk melepas)
+
+Bersama & hadiah
+/groups — grupmu: iuran jatuh tempo, patungan, donasi
+/goals — tujuan tabunganmu dan progresnya
+/badges — badge dan streak menabungmu
+/points — poin referral dan payment link-mu
+
 /reset — hapus percakapan (web + Telegram)
 /stop — hentikan laporan harian dan putuskan tautan
 
+Kamu juga dapat pesan saat teman bergabung lewat link-mu, badge dicetak, tujuan tercapai, atau Hermes membayar iuranmu.
 Hubungkan wallet di app coinAI (Agen AI → Laporan & pengingat harian → Hubungkan Telegram).`
+
+const HELP_ZH = `coinAI — 你在 BNB Chain 上的 AI 储蓄与投资团队。
+
+直接输入即可聊天，例如“我的储蓄怎么样？”、“NVIDIA 最近表现如何？”或“用 Pool 1 Aggressive 作为基准”。
+
+资金
+/portfolio — 储蓄、仓位（金库 + AI 聪明钱篮子）和 AI 策略
+/deposit — 如何存入 tUSDT 或 tBNB
+/market — 实时行情（BNB、BTC、ETH、CAKE）
+
+智能体
+/agent — 智能体的权限：技能、储蓄比例范围、会费预算、Hermes
+/run — 立即运行智能体团队
+/report — 今日储蓄报告
+/pools — 你保存的组合（来自市场页面）
+/use <组合名> — 将组合设为 AI 基准（/use off 取消）
+
+群组与奖励
+/groups — 你的群组：待缴会费、凑钱、募捐
+/goals — 你的储蓄目标及进度
+/badges — 你的徽章和连续储蓄
+/points — 推荐积分和你的收款链接
+
+/reset — 清除对话（网页 + Telegram）
+/stop — 停止每日报告并解除绑定
+
+当好友通过你的链接加入、徽章铸造、目标达成或 Hermes 代缴会费时，你也会收到消息。
+在 coinAI app 中连接钱包（AI 智能体 → 每日报告与提醒 → 连接 Telegram）。`
 
 const NOT_LINKED = 'This chat is not linked to a wallet yet. Open the coinAI app → AI Agent → Daily report & reminders → Connect Telegram, then press Start.'
 
@@ -49,7 +102,7 @@ const idOrEn = (locale: string, id: string, en: string) => (locale === 'id' ? id
 // Chat-friendly amounts: 47.826332 tUSDT → 47.83 tUSDT (47,83 in Indonesian)
 const money = (x: bigint, locale: string) =>
   `${(Number(x) / 1e6).toLocaleString(locale === 'id' ? 'id-ID' : 'en-US', { maximumFractionDigits: 2 })} tUSDT`
-const helpFor = (locale: string) => idOrEn(locale, HELP_ID, HELP_EN)
+const helpFor = (locale: string) => (locale === 'id' ? HELP_ID : locale === 'zh' ? HELP_ZH : HELP_EN)
 const appLink = (path: string) => (process.env.APP_URL ? `${process.env.APP_URL}${path}` : `the coinAI app (${path})`)
 const mixText = (m: { conservative: number; balanced: number; growth: number }, locale: string) =>
   idOrEn(locale, `Konservatif ${m.conservative}% · Seimbang ${m.balanced}% · Agresif ${m.growth}%`, `Conservative ${m.conservative}% · Balanced ${m.balanced}% · Growth ${m.growth}%`)
@@ -181,6 +234,10 @@ export async function POST(req: Request) {
     } else if (command === '/portfolio') {
       await sendTyping(chatId)
       await sendTelegram(chatId, await portfolioText(user, locale))
+    } else if (command === '/goals' || command === '/badges' || command === '/points' || command === '/groups' || command === '/agent') {
+      await sendTyping(chatId)
+      const text = { '/goals': goalsText, '/badges': badgesText, '/points': pointsText, '/groups': groupsText, '/agent': agentText }[command]
+      await sendTelegram(chatId, await text(user, asLocale(locale)))
     } else if (command === '/pools') {
       await sendTelegram(chatId, await poolsText(user, locale))
     } else if (command === '/use') {
