@@ -84,6 +84,27 @@ export function EvaluationCard() {
           ))}
         </ul>
 
+        {e.basket && (
+          <div className="rounded-xl border p-3 text-sm">
+            <p className="font-medium">{t('eval.basketTitle')}</p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {(
+                [
+                  ['eval.basketValue', e.basket.plutus.value, e.basket.static.value, '', 'higher'],
+                  ['eval.colGain', e.basket.plutus.gainPct, e.basket.static.gainPct, '%', 'higher'],
+                  ['eval.colDip', e.basket.plutus.worstDipPct, e.basket.static.worstDipPct, '%', 'lower'],
+                ] as const
+              ).map(([label, agent, fixed, unit, better]) => (
+                <div key={label}>
+                  <p className="text-[10px] tracking-wider text-muted-foreground uppercase">{t(label)}</p>
+                  <Cell agent={agent} fixed={fixed} unit={unit} better={better} className="mt-1 block text-left" />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{t('eval.basketNote', { n: e.basket.plutus.weightChanges })}</p>
+          </div>
+        )}
+
         <div className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
           <p>{t(model === 'testnet' ? 'eval.noteTestnet' : 'eval.noteMarket')}</p>
           <p>{t('eval.notePolicy', { on: e.regimeDays.risk_on, neutral: e.regimeDays.neutral, off: e.regimeDays.risk_off })}</p>
