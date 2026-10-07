@@ -15,6 +15,9 @@ export type Metrics = {
   avgSplitPercent: number
 }
 
+/** 1,000 tUSDT held in the AI Smart Money basket over the window. */
+export type BasketMetrics = { value: number; gainPct: number; worstDipPct: number; weightChanges: number }
+
 export type EvaluationRow = { pattern: IncomePattern; model: VaultModel; fixed: Metrics; agent: Metrics }
 
 /** Live-model spot check: the real strategists' calls at sampled moments vs the codified policy. */
@@ -34,5 +37,6 @@ export type Evaluation = {
   window: { from: string; to: string; days: number }
   regimeDays: { risk_on: number; neutral: number; risk_off: number }
   rows: EvaluationRow[]
+  basket?: { static: BasketMetrics; plutus: BasketMetrics } // Plutus's regime weights vs the deploy's fixed weights
   llm: LlmSpotCheck | null
 }

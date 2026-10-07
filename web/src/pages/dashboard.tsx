@@ -20,6 +20,7 @@ import { useT, type MessageKey } from '@/lib/i18n'
 import { faucetedFlag } from '@/lib/use-faucet'
 import { useYieldData } from '@/lib/use-yield-data'
 import { useWallet } from '@/lib/wallet'
+import { mainVault } from '@/lib/yield'
 
 type SecondaryAction = {
   to: string
@@ -56,7 +57,7 @@ const SECONDARY_ACTIONS: SecondaryAction[] = [
 export function Dashboard() {
   const { address } = useWallet()
   const { account, accountStatus, rates, activity, refresh } = useAppState()
-  const { vaults, loading: yieldLoading } = useYieldData(address)
+  const { vaults, loading: yieldLoading } = useYieldData()
   const navigate = useNavigate()
   const t = useT()
 
@@ -136,7 +137,7 @@ export function Dashboard() {
             vaults={vaults}
             loading={yieldLoading}
             rates={rates}
-            selectedTarget={account?.yieldTarget}
+            selectedTarget={mainVault(account)}
           />
           <ActivityCard />
         </>

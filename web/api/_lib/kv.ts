@@ -39,6 +39,7 @@ export const kv = {
   },
   del: (key: string) => cmd('DEL', key),
   sadd: (key: string, member: string) => cmd('SADD', key, member),
+  srem: (key: string, member: string) => cmd('SREM', key, member),
   smembers: (key: string) => cmd<string[]>('SMEMBERS', key),
   async push(key: string, value: unknown, keep: number) {
     await cmd('LPUSH', key, JSON.stringify(value, replacer))
@@ -48,6 +49,7 @@ export const kv = {
     const raw = await cmd<string[]>('LRANGE', key, 0, count - 1)
     return raw.map((r) => JSON.parse(r) as T)
   },
+  incrby: (key: string, by: number) => cmd<number>('INCRBY', key, by),
   /** Fixed-window counter; returns the hit count within the window. */
   async hit(key: string, windowSeconds: number): Promise<number> {
     const n = await cmd<number>('INCR', key)

@@ -8,7 +8,7 @@ import { formatDateTime, formatMoney, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
 import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { VAULT_LOGO, type Vaults } from '@/lib/yield'
+import { VAULT_LOGO } from '@/lib/yield'
 import type { VaultMix } from '../../shared/pool.js'
 
 const VAULT_NAME: Record<YieldTarget, MessageKey> = {
@@ -66,17 +66,15 @@ const tilt = (d: AgentDecision, k: YieldTarget) => (d.mix ? d.mix[k] - d.referen
  */
 export function DecisionCard({
   runs,
-  vaults,
   onLoad,
 }: {
   runs: AgentRun[] | null
-  vaults?: Vaults | null
   /** Shown as a button while runs are hidden behind the wallet sign-in. */
   onLoad?: () => void
 }) {
   const t = useT()
   const { locale, primaryCurrency } = useSettings()
-  const { rates } = useAppState()
+  const { account, rates } = useAppState()
   const run = runs?.find((r) => r.decision) ?? null
   const d = run?.decision ?? null
   const legacy = !d ? (runs?.find((r) => r.allocation) ?? null) : null
@@ -155,7 +153,7 @@ export function DecisionCard({
                       <span className="truncate">{t(VAULT_NAME[k])}</span>
                     </span>
                     <span className="hidden text-right text-muted-foreground sm:block">
-                      {vaults ? formatMoney(vaults[k].position, primaryCurrency, rates, locale) : '–'}
+                      {account ? formatMoney(account.positions[k], primaryCurrency, rates, locale) : '–'}
                     </span>
                     <span className="text-right text-muted-foreground">{pct(d.reference.mix[k])}</span>
                     <span className={cn('text-right text-xs', tl > 0 ? 'text-primary-ink' : tl < 0 ? 'text-destructive' : 'text-muted-foreground')}>

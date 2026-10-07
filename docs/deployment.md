@@ -137,7 +137,7 @@ Everything is set in **Vercel → Project → Settings → Environment Variables
 ### Frontend (`VITE_*`, shipped to the browser)
 
 ```env
-VITE_COINAI_ADDRESS=0x...          # CoinAI on BSC Testnet (empty = in-memory mock mode)
+VITE_COINAI_ADDRESS=0x...          # CoinAI v2 on BSC Testnet (empty = the default in shared/deployment.ts; VITE_MOCK=1 = in-memory mock)
 VITE_TOKEN_ADDRESS=0x...           # MockUSDT (tUSDT)
 VITE_AGENT_ADDRESS=0x...           # public address of the agent wallet (AGENT_PRIVATE_KEY)
 VITE_DEPLOY_BLOCK=12345678         # CoinAI deploy block; activity history is read from here

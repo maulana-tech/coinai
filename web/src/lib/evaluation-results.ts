@@ -2,15 +2,15 @@
 import type { Evaluation } from '../../shared/evaluation-types.js'
 
 export const EVALUATION: Evaluation = {
-  "generatedAt": "2026-10-06T14:09:29.204Z",
+  "generatedAt": "2026-10-07T03:04:44.998Z",
   "window": {
-    "from": "2025-10-07",
-    "to": "2026-10-06",
+    "from": "2025-10-08",
+    "to": "2026-10-07",
     "days": 365
   },
   "regimeDays": {
-    "risk_on": 53,
-    "neutral": 215,
+    "risk_on": 52,
+    "neutral": 216,
     "risk_off": 97
   },
   "rows": [
@@ -28,9 +28,9 @@ export const EVALUATION: Evaluation = {
       },
       "agent": {
         "contributed": 3000,
-        "value": 3104.95,
-        "gain": 104.95,
-        "gainPct": 3.5,
+        "value": 3080.14,
+        "gain": 80.14,
+        "gainPct": 2.67,
         "worstDipPct": 0,
         "shortDays": 0,
         "avgSplitPercent": 23.3
@@ -50,9 +50,9 @@ export const EVALUATION: Evaluation = {
       },
       "agent": {
         "contributed": 1365.2,
-        "value": 1408.66,
-        "gain": 43.46,
-        "gainPct": 3.18,
+        "value": 1398.92,
+        "gain": 33.72,
+        "gainPct": 2.47,
         "worstDipPct": 0,
         "shortDays": 11,
         "avgSplitPercent": 10.7
@@ -72,9 +72,9 @@ export const EVALUATION: Evaluation = {
       },
       "agent": {
         "contributed": 1267,
-        "value": 1314.1,
-        "gain": 47.1,
-        "gainPct": 3.72,
+        "value": 1302.49,
+        "gain": 35.49,
+        "gainPct": 2.8,
         "worstDipPct": 0,
         "shortDays": 0,
         "avgSplitPercent": 11.5
@@ -85,19 +85,19 @@ export const EVALUATION: Evaluation = {
       "model": "market",
       "fixed": {
         "contributed": 2600,
-        "value": 2796.57,
-        "gain": 196.57,
-        "gainPct": 7.56,
-        "worstDipPct": 11.37,
+        "value": 2771.93,
+        "gain": 171.93,
+        "gainPct": 6.61,
+        "worstDipPct": 12.81,
         "shortDays": 0,
         "avgSplitPercent": 20
       },
       "agent": {
         "contributed": 3000,
-        "value": 3199.92,
-        "gain": 199.92,
-        "gainPct": 6.66,
-        "worstDipPct": 9.31,
+        "value": 3134.06,
+        "gain": 134.06,
+        "gainPct": 4.47,
+        "worstDipPct": 8.18,
         "shortDays": 0,
         "avgSplitPercent": 23.3
       }
@@ -107,19 +107,19 @@ export const EVALUATION: Evaluation = {
       "model": "market",
       "fixed": {
         "contributed": 2604.6,
-        "value": 2840.07,
-        "gain": 235.47,
-        "gainPct": 9.04,
+        "value": 2808.79,
+        "gain": 204.19,
+        "gainPct": 7.84,
         "worstDipPct": 18.91,
         "shortDays": 23,
         "avgSplitPercent": 20
       },
       "agent": {
         "contributed": 1365.2,
-        "value": 1458.86,
-        "gain": 93.66,
-        "gainPct": 6.86,
-        "worstDipPct": 14.05,
+        "value": 1426.56,
+        "gain": 61.36,
+        "gainPct": 4.49,
+        "worstDipPct": 10.7,
         "shortDays": 11,
         "avgSplitPercent": 10.7
       }
@@ -129,23 +129,46 @@ export const EVALUATION: Evaluation = {
       "model": "market",
       "fixed": {
         "contributed": 2183.6,
-        "value": 2362.79,
-        "gain": 179.19,
-        "gainPct": 8.21,
-        "worstDipPct": 8.48,
+        "value": 2333.64,
+        "gain": 150.04,
+        "gainPct": 6.87,
+        "worstDipPct": 8.27,
         "shortDays": 27,
         "avgSplitPercent": 20
       },
       "agent": {
         "contributed": 1267,
-        "value": 1332,
-        "gain": 65,
-        "gainPct": 5.13,
-        "worstDipPct": 6.89,
+        "value": 1309.46,
+        "gain": 42.46,
+        "gainPct": 3.35,
+        "worstDipPct": 3.36,
         "shortDays": 0,
         "avgSplitPercent": 11.5
       }
     }
   ],
-  "llm": null
+  "basket": {
+    "static": {
+      "value": 770.69,
+      "gainPct": -22.93,
+      "worstDipPct": 35.32,
+      "weightChanges": 0
+    },
+    "plutus": {
+      "value": 824.06,
+      "gainPct": -17.59,
+      "worstDipPct": 36.99,
+      "weightChanges": 31
+    }
+  },
+  "llm": {
+    "model": "anthropic/claude-haiku-4.5",
+    "points": 10,
+    "splitMatched": 9,
+    "splitCompared": 10,
+    "mixDiffPoints": 0,
+    "mixCompared": 10,
+    "skippedLowConfidence": 0,
+    "failed": 0
+  }
 }

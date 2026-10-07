@@ -9,11 +9,10 @@ import { coinai } from '@/lib/coinai'
 import { parseToken, tokenToInput } from '@/lib/format'
 import { formatDate, formatMoney, useT, type MessageKey } from '@/lib/i18n'
 import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
-import { YIELD_TARGETS, type CoinAIAccount, type YieldTarget } from '@/lib/types'
-import { useYieldData } from '@/lib/use-yield-data'
+import { POSITIONS, type CoinAIAccount, type Position } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
-import { VAULT_LOGO } from '@/lib/yield'
+import { POSITION_NAME, VAULT_LOGO } from '@/lib/yield'
 
 type Pocket = 'spend' | 'savings' | 'vault'
 
@@ -21,12 +20,6 @@ const PANEL: Record<Pocket, { image: string; label: MessageKey; title: MessageKe
   spend: { image: '/landing/hero.jpg', label: 'withdraw.panelSpendLabel', title: 'withdraw.panelSpendTitle', body: 'withdraw.panelSpendBody' },
   savings: { image: '/landing/save.jpg', label: 'withdraw.panelSaveLabel', title: 'withdraw.panelSaveTitle', body: 'withdraw.panelSaveBody' },
   vault: { image: '/landing/agents.jpg', label: 'withdraw.panelVaultLabel', title: 'withdraw.panelVaultTitle', body: 'withdraw.panelVaultBody' },
-}
-
-const VAULT_NAME: Record<YieldTarget, MessageKey> = {
-  conservative: 'yield.sourceConservativeName',
-  balanced: 'yield.sourceBalancedName',
-  growth: 'yield.sourceGrowthName',
 }
 
 // Parses what the user typed; null while empty or not a valid amount (no toast while typing).
@@ -46,16 +39,16 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
   const { locale, primaryCurrency } = useSettings()
   const [pocket, setPocket] = useState<Pocket>('spend')
   const [value, setValue] = useState('')
-  // "Max" on a vault redeems every share rather than the displayed amount, so no dust is left behind.
+  // "Max" on a position takes all of it rather than the displayed amount, so no dust is left behind.
   const [all, setAll] = useState(false)
-  const { vaults, refresh: refreshVaults } = useYieldData(address)
-  const [picked, setPicked] = useState<YieldTarget | null>(null)
-  const vaultTarget = picked ?? YIELD_TARGETS.find((k) => (vaults?.[k].position ?? 0n) > 0n) ?? 'balanced'
+  const [picked, setPicked] = useState<Position | null>(null)
+  const vaultTarget = picked ?? POSITIONS.find((k) => account.positions[k] > 0n) ?? 'balanced'
   const anyBusy = busy !== null
 
   const locked = Number(account.lockUntil) * 1000 > Date.now()
-  const available = pocket === 'spend' ? account.spend : pocket === 'savings' ? account.shares : (vaults?.[vaultTarget].position ?? 0n)
-  const blocked = pocket === 'savings' && locked
+  const available = pocket === 'spend' ? account.spend : pocket === 'savings' ? account.idle : account.positions[vaultTarget]
+  // the savings lock covers idle savings and every position
+  const blocked = pocket !== 'spend' && locked
   const amount = tryParse(value)
   const tooMuch = amount !== null && amount > available
   const secondary = secondaryCurrencyFor(primaryCurrency, locale)
@@ -79,12 +72,11 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
         : pocket === 'savings'
           ? await runAction('savings', 'success.withdrewSavings', () => coinai.withdrawSavings(address, amount))
           : await runAction('vault', 'success.withdrewVault', () =>
-              coinai.withdrawFromVault(address, vaultTarget, all ? 'all' : amount),
+              coinai.withdrawPosition(address, vaultTarget, all ? 'all' : amount),
             )
     if (ok) {
       setValue('')
       setAll(false)
-      if (pocket === 'vault') void refreshVaults()
     }
   }
 
@@ -124,8 +116,8 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
         </Tabs>
 
         {pocket === 'vault' && (
-          <div className="mt-5 grid grid-cols-3 gap-2" role="radiogroup" aria-label={t('withdraw.vaultTab')}>
-            {YIELD_TARGETS.map((k) => (
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label={t('withdraw.vaultTab')}>
+            {POSITIONS.map((k) => (
               <button
                 key={k}
                 type="button"
@@ -143,9 +135,9 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
                 )}
               >
                 <img src={VAULT_LOGO[k]} alt="" className="size-6 rounded-full" />
-                <span className="w-full truncate text-xs font-medium">{t(VAULT_NAME[k])}</span>
+                <span className="w-full truncate text-xs font-medium">{t(POSITION_NAME[k])}</span>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {vaults ? formatMoney(vaults[k].position, 'usdt', rates, locale) : '–'}
+                  {formatMoney(account.positions[k], 'usdt', rates, locale)}
                 </span>
               </button>
             ))}
@@ -158,7 +150,7 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
             <div>
               <p className="font-semibold">
                 {pocket === 'vault'
-                  ? t('withdraw.fromVault', { vault: t(VAULT_NAME[vaultTarget]) })
+                  ? t('withdraw.fromVault', { vault: t(POSITION_NAME[vaultTarget]) })
                   : t(pocket === 'spend' ? 'withdraw.fromSpend' : 'withdraw.fromSave')}
               </p>
               <p className="font-mono text-xs text-muted-foreground">tUSDT</p>
@@ -240,7 +232,7 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
           {buttonLabel}
         </Button>
 
-        {pocket === 'savings' && (
+        {pocket !== 'spend' && (
           <div className="mt-3 space-y-2">
             {locked && (
               <p className="flex items-center gap-2 text-xs font-medium text-accent-foreground">
@@ -248,13 +240,10 @@ export function WithdrawCard({ account }: { account: CoinAIAccount }) {
                 {t('withdraw.lockedReason', { date: formatDate(account.lockUntil, locale) })}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">{t('withdraw.sharesHint')}</p>
+            <p className="text-xs text-muted-foreground">
+              {pocket === 'savings' ? t('withdraw.sharesHint') : available === 0n ? t('withdraw.vaultEmpty') : t('withdraw.vaultHint')}
+            </p>
           </div>
-        )}
-        {pocket === 'vault' && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {vaults && available === 0n ? t('withdraw.vaultEmpty') : t('withdraw.vaultHint')}
-          </p>
         )}
       </div>
     </div>

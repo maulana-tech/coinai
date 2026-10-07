@@ -1,18 +1,21 @@
-import { Contract, Interface, Wallet, formatUnits, getAddress } from 'ethers'
+import { Contract, Interface, Wallet, ZeroAddress, formatUnits, getAddress } from 'ethers'
 import { DEPLOYMENT } from '../../shared/deployment.js'
 import { CALL_RPC, rpcProvider } from '../../shared/rpc.js'
-import { TARGETS, type Policy, type Proposal, type Target } from './guard.js'
+import { POSITIONS, SKILL_INVEST, SKILL_PAY, SKILL_SPLIT, TARGETS, type Policy, type Position, type Proposal, type Target } from './guard.js'
 import { kv } from './kv.js'
 
 const TOKEN_DECIMALS = 6 // tUSDT, see evm/src/MockUSDT.sol
 
+// CoinAI v2 (evm/src/CoinAIV2.sol): savings are held inside the contract as idle tUSDT plus positions.
 const COINAI_ABI = [
-  'function accountOf(address) view returns (tuple(uint16 splitBps,uint128 spend,uint128 shares,uint64 lockUntil,uint8 yieldTarget))',
+  'function accountOf(address) view returns (tuple(uint16 splitBps,uint128 spend,uint128 idle,uint64 lockUntil,uint256[4] positions,uint256[3] vaultShares))',
   'function statsOf(address) view returns (uint128 totalReceived,uint64 paymentCount,uint64 lastPaymentAt)',
-  'function agentOf(address) view returns (address agent,uint16 minSplitBps,uint16 maxSplitBps,uint64 expiry)',
+  'function policyOf(address user,address agent) view returns (uint8 skills,uint16 minSplitBps,uint16 maxSplitBps,uint64 expiry,uint128 payBudget,uint64 windowStart,uint128 paidInWindow)',
   'function vaultOf(uint8) view returns (address)',
   'function agentSetSplit(address user,uint16 bps,string reason)',
   'function agentInvest(address user,uint256 amount,uint8 target,string reason) returns (uint256)',
+  'function agentRebalance(address user,uint8 from,uint8 to,uint256 amount,string reason) returns (uint256)',
+  'function agentContribute(address user,uint256 fundId,uint256 amount,string reason)',
 ]
 
 const VAULT_ABI = [
@@ -30,10 +33,11 @@ export const PAYMENT_ROUTED = new Interface([
 
 export type Payment = { txHash: string; from: string; to: string; amount: bigint; saved: bigint; at: number }
 
-/** The first PaymentRouted log emitted by `coinai` among a receipt's logs (logs from other contracts are ignored). */
-export function paymentFromLogs(logs: readonly { address: string; topics: readonly string[]; data: string }[], coinai: string) {
+/** The first PaymentRouted log emitted by one of `coinai` among a receipt's logs (logs from other contracts are ignored). */
+export function paymentFromLogs(logs: readonly { address: string; topics: readonly string[]; data: string }[], coinai: string | string[]) {
+  const ours = [coinai].flat().map((a) => a.toLowerCase())
   for (const log of logs) {
-    if (log.address.toLowerCase() !== coinai.toLowerCase()) continue
+    if (!ours.includes(log.address.toLowerCase())) continue
     const parsed = PAYMENT_ROUTED.parseLog({ topics: [...log.topics], data: log.data })
     if (parsed)
       return { from: getAddress(parsed.args.from), to: getAddress(parsed.args.to), amount: BigInt(parsed.args.amount), saved: BigInt(parsed.args.savingsAmount) }
@@ -47,7 +51,8 @@ export async function paymentFromTx(txHash: string): Promise<Payment | null> {
   const p = provider()
   const receipt = await p.getTransactionReceipt(txHash)
   if (!receipt || receipt.status !== 1) return null
-  const found = paymentFromLogs(receipt.logs, coinaiAddress())
+  // v1 too, so a receipt for a payment made before the move still resolves
+  const found = paymentFromLogs(receipt.logs, [coinaiAddress(), DEPLOYMENT.coinai])
   if (!found) return null
   const block = await p.getBlock(receipt.blockNumber)
   return { txHash, ...found, at: Number(block?.timestamp ?? Math.floor(Date.now() / 1000)) }
@@ -62,9 +67,15 @@ export function env(name: string): string {
 const provider = () => rpcProvider(process.env.BSC_RPC_URL || CALL_RPC)
 /** Read-only BSC Testnet provider (BSC_RPC_URL or the BNB Chain RPC). */
 export const chainProvider = provider
-const coinaiAddress = () => process.env.COINAI_ADDRESS || process.env.VITE_COINAI_ADDRESS || DEPLOYMENT.coinai
+export const coinaiAddress = () => process.env.COINAI_ADDRESS || process.env.VITE_COINAI_ADDRESS || DEPLOYMENT.v2.coinai
 export const agentWallet = () => new Wallet(env('AGENT_PRIVATE_KEY'), provider())
 export const explorerTx = (hash: string) => `https://testnet.bscscan.com/tx/${hash}`
+
+/** How many coinAI payments a wallet has received (v2), e.g. to tell a newcomer from a user. */
+export async function paymentCountOf(user: string): Promise<number> {
+  const c = new Contract(coinaiAddress(), COINAI_ABI, provider())
+  return Number((await c.statsOf(user)).paymentCount)
+}
 
 export type VaultInfo = {
   target: Target
@@ -84,7 +95,7 @@ export type UserState = {
   spend: bigint
   savings: bigint
   lockUntil: number
-  yieldTarget: Target
+  positions: Record<Position, bigint> // what each position is worth now
   totalReceived: bigint
   paymentCount: number
   lastPaymentAt: number
@@ -96,10 +107,11 @@ export async function readUserState(userInput: string): Promise<UserState> {
   const user = getAddress(userInput)
   const p = provider()
   const c = new Contract(coinaiAddress(), COINAI_ABI, p)
+  const agentAddress = agentWallet().address
   const [acc, stats, policy, block, vaultAddrs] = await Promise.all([
     c.accountOf(user),
     c.statsOf(user),
-    c.agentOf(user),
+    c.policyOf(user, agentAddress),
     p.getBlock('latest'),
     Promise.all(TARGETS.map((_, i) => c.vaultOf(i) as Promise<string>)),
   ])
@@ -107,14 +119,8 @@ export async function readUserState(userInput: string): Promise<UserState> {
   const vaults = await Promise.all(
     vaultAddrs.map(async (address, i): Promise<VaultInfo> => {
       const v = new Contract(address, VAULT_ABI, p)
-      const [name, apyBps, riskLevel, tvl, shares] = await Promise.all([
-        v.name(),
-        v.apyBps(),
-        v.riskLevel(),
-        v.totalAssets(),
-        v.balanceOf(user),
-      ])
-      const userPosition: bigint = shares === 0n ? 0n : await v.convertToAssets(shares)
+      const [name, apyBps, riskLevel, tvl] = await Promise.all([v.name(), v.apyBps(), v.riskLevel(), v.totalAssets()])
+      const userPosition = BigInt(acc.positions[i]) // coinAI holds the shares for the user
       return { target: TARGETS[i], address, name, apyBps: Number(apyBps), riskLevel: Number(riskLevel), tvl, userPosition }
     }),
   )
@@ -122,20 +128,24 @@ export async function readUserState(userInput: string): Promise<UserState> {
   return {
     user,
     now: block?.timestamp ?? Math.floor(Date.now() / 1000),
-    agentAddress: agentWallet().address,
+    agentAddress,
     splitBps: Number(acc.splitBps),
-    spend: acc.spend,
-    savings: acc.shares,
+    spend: BigInt(acc.spend),
+    savings: BigInt(acc.idle),
     lockUntil: Number(acc.lockUntil),
-    yieldTarget: TARGETS[Number(acc.yieldTarget)] ?? 'balanced',
+    positions: Object.fromEntries(POSITIONS.map((t, i) => [t, BigInt(acc.positions[i])])) as Record<Position, bigint>,
     totalReceived: stats.totalReceived,
     paymentCount: Number(stats.paymentCount),
     lastPaymentAt: Number(stats.lastPaymentAt),
     policy: {
-      agent: policy.agent,
+      agent: Number(policy.skills) ? agentAddress : ZeroAddress, // policyOf is keyed by the agent: it's ours or none
+      skills: Number(policy.skills),
       minSplitBps: Number(policy.minSplitBps),
       maxSplitBps: Number(policy.maxSplitBps),
       expiry: Number(policy.expiry),
+      payBudget: BigInt(policy.payBudget),
+      windowStart: Number(policy.windowStart),
+      paidInWindow: BigInt(policy.paidInWindow),
     },
     vaults,
   }
@@ -154,7 +164,7 @@ export function describe(s: UserState) {
     spendableBalance: fmt(s.spend),
     idleSavings: fmt(s.savings),
     savingsLockedUntil: s.now < s.lockUntil ? iso(s.lockUntil) : null,
-    currentVaultPreference: s.yieldTarget,
+    aiSmartMoneyBasket: fmt(s.positions.basket),
     payments: {
       count: s.paymentCount,
       totalReceived: fmt(s.totalReceived),
@@ -162,6 +172,7 @@ export function describe(s: UserState) {
       daysSinceLastPayment: s.lastPaymentAt ? days(s.lastPaymentAt, s.now) : null,
     },
     agentLimits: {
+      skills: [s.policy.skills & SKILL_SPLIT && 'split', s.policy.skills & SKILL_INVEST && 'invest', s.policy.skills & SKILL_PAY && 'pay dues'].filter(Boolean),
       minSplitPercent: s.policy.minSplitBps / 100,
       maxSplitPercent: s.policy.maxSplitBps / 100,
       expiresAt: iso(s.policy.expiry),
@@ -177,15 +188,27 @@ export function describe(s: UserState) {
   }
 }
 
+const coinaiIface = new Interface(COINAI_ABI)
+
+/** The transaction the agent wallet sends for a proposal (also what scripts/smoke-onchain.ts simulates). */
+export function agentTx(user: string, p: Proposal): { to: string; data: string } {
+  const at = (x: Position) => POSITIONS.indexOf(x)
+  const data =
+    p.kind === 'set_split'
+      ? coinaiIface.encodeFunctionData('agentSetSplit', [user, p.bps, p.reason])
+      : p.kind === 'invest'
+        ? coinaiIface.encodeFunctionData('agentInvest', [user, p.amount, at(p.target), p.reason])
+        : p.kind === 'rebalance'
+          ? coinaiIface.encodeFunctionData('agentRebalance', [user, at(p.from), at(p.to), p.amount, p.reason])
+          : coinaiIface.encodeFunctionData('agentContribute', [user, p.fundId, p.amount, p.reason])
+  return { to: coinaiAddress(), data }
+}
+
 /** Sends the proposal from the agent wallet and waits for it to be mined. */
 export async function execute(user: string, p: Proposal): Promise<string> {
-  const c = new Contract(coinaiAddress(), COINAI_ABI, agentWallet())
-  const tx =
-    p.kind === 'set_split'
-      ? await c.agentSetSplit(user, p.bps, p.reason)
-      : await c.agentInvest(user, p.amount, TARGETS.indexOf(p.target), p.reason)
+  const tx = await agentWallet().sendTransaction(agentTx(user, p))
   await tx.wait()
-  return tx.hash as string
+  return tx.hash
 }
 
 // ─── Testnet yield simulator ─────────────────────────────────────────────────

@@ -10,11 +10,9 @@ import { TOKEN_SCALE } from '@/lib/token'
 import { currencyAffix, formatDate, formatMoney, intlLocale, useT } from '@/lib/i18n'
 import type { FxRates } from '@/lib/rates'
 import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
-import type { CoinAIAccount } from '@/lib/types'
+import { totalSavings, type CoinAIAccount } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useWallet } from '@/lib/wallet'
-import { useYieldData } from '@/lib/use-yield-data'
-import { principalOnChain, totalInvested } from '@/lib/yield'
+import { savingsPosition } from '@/lib/yield'
 
 const MIN_SEGMENT_PCT = 4 // keep tiny pockets visible on the bar
 
@@ -35,12 +33,9 @@ function segmentWidths(spend: number, save: number): [number, number] {
 
 export function BalanceHero({ account, loading, rates }: BalanceHeroProps) {
   const t = useT()
-  const { address } = useWallet()
   const { locale, primaryCurrency } = useSettings()
   const secondaryCurrency = secondaryCurrencyFor(primaryCurrency, locale)
   const intl = intlLocale(locale)
-  const { vaults } = useYieldData(address)
-  const vaultBalance = totalInvested(vaults) // savings the user moved into vaults
 
   const primary = (amount: bigint): string => formatMoney(amount, primaryCurrency, rates, locale)
   const secondary = (amount: bigint): string =>
@@ -63,19 +58,13 @@ export function BalanceHero({ account, loading, rates }: BalanceHeroProps) {
     )
   }
 
-  const total = account.spend + account.shares + vaultBalance
+  const savings = totalSavings(account) // idle + every position
+  const total = account.spend + savings
   const empty = total <= 0n
   const locked = Number(account.lockUntil) * 1000 > Date.now()
-  const [spendPct, savePct] = segmentWidths(
-    tokenToNumber(account.spend),
-    tokenToNumber(account.shares + vaultBalance),
-  )
-  const currentValue = vaults ? account.shares + vaultBalance : null
-  const position =
-    vaults && currentValue !== null
-      ? { principal: principalOnChain(account.shares, vaults), currentValue, earnings: currentValue - principalOnChain(account.shares, vaults) }
-      : null
-  const earning = position !== null && position.earnings !== null && position.earnings > 0n
+  const [spendPct, savePct] = segmentWidths(tokenToNumber(account.spend), tokenToNumber(savings))
+  const position = savingsPosition(account)
+  const earning = position.earnings !== null && position.earnings > 0n
 
   return (
     <Card className="rounded-2xl shadow-none">
@@ -157,10 +146,10 @@ export function BalanceHero({ account, loading, rates }: BalanceHeroProps) {
               </p>
               <p className="mt-1 flex items-center justify-end gap-1.5 text-lg font-semibold tracking-tight tabular-nums">
                 <TokenIcon token="usdt" size={24} />
-                {primary(account.shares + vaultBalance)}
+                {primary(savings)}
               </p>
               <p className="text-xs text-muted-foreground tabular-nums">
-                ~ {secondary(account.shares + vaultBalance)}
+                ~ {secondary(savings)}
               </p>
             </div>
           </div>
@@ -189,7 +178,7 @@ export function BalanceHero({ account, loading, rates }: BalanceHeroProps) {
                   {t('balances.lockedUntil', { date: formatDate(account.lockUntil, locale) })}
                 </Badge>
               )}
-              {account.shares + vaultBalance > 0n && (
+              {savings > 0n && (
                 <Link
                   to="/app/yield"
                   className={cn(
@@ -198,7 +187,7 @@ export function BalanceHero({ account, loading, rates }: BalanceHeroProps) {
                   )}
                 >
                   <span className="size-1.5 rounded-full bg-gold" />
-                  {earning && position?.earnings != null
+                  {earning && position.earnings !== null
                     ? t('balances.earningsLine', { amount: primary(position.earnings) })
                     : t('balances.earningCaption')}
                 </Link>

@@ -21,6 +21,7 @@ import {
   acceptsMoney,
   byteLength,
   cancelFund,
+  contributeFromSpendable,
   contributeToFund,
   currentPeriod,
   duesBehind,
@@ -184,8 +185,9 @@ function Chips({ values, onPick, active }: { values: { key: string; label: strin
 function ActionCard({ fund, stake, onDone }: { fund: GroupFund; stake: MyStake | null; onDone: () => void }) {
   const t = useT()
   const { address, connecting, connect } = useWallet()
-  const { busy, runAction } = useAppState()
+  const { account, busy, runAction } = useAppState()
   const { main, approx } = useMoney()
+  const [source, setSource] = useState<'wallet' | 'spend'>('wallet')
   const [amount, setAmount] = useState('')
   const [message, setMessage] = useState('')
   const [periods, setPeriods] = useState<number | null>(null)
@@ -268,12 +270,17 @@ function ActionCard({ fund, stake, onDone }: { fund: GroupFund; stake: MyStake |
     total = units(amount)
     canPay = total > 0n
   }
-  canPay = canPay && messageBytes <= MAX_MESSAGE_BYTES
+  // coinAI pays only for the payer themself, from what's spendable there
+  const spendable = account?.spend ?? 0n
+  const fromSpend = source === 'spend' && !forFriend
+  canPay = canPay && messageBytes <= MAX_MESSAGE_BYTES && (!fromSpend || total <= spendable)
 
   const pay = async () => {
     const member = forFriend ? friend.trim() : undefined
     const ok = await runAction('group-pay', fund.kind === 'iuran' ? 'groups.duesPaid' : 'groups.contributed', () =>
-      contributeToFund(address, fund.id, total, message.trim(), member),
+      fromSpend
+        ? contributeFromSpendable(address, fund.id, total, message.trim())
+        : contributeToFund(address, fund.id, total, message.trim(), member),
     )
     if (ok) {
       setAmount('')
@@ -343,13 +350,28 @@ function ActionCard({ fund, stake, onDone }: { fund: GroupFund; stake: MyStake |
           <Input value={message} placeholder={t('groups.messagePlaceholder')} onChange={(e) => setMessage(e.target.value)} />
         </div>
 
+        {!forFriend && spendable > 0n && (
+          <div className="space-y-1.5">
+            <p className="text-sm">{t('groups.payFrom')}</p>
+            <Chips
+              active={source}
+              onPick={(k) => setSource(k as 'wallet' | 'spend')}
+              values={[
+                { key: 'wallet', label: t('groups.payFromWallet') },
+                { key: 'spend', label: t('groups.payFromSpend', { amount: main(spendable) }) },
+              ]}
+            />
+            {fromSpend && total > spendable && <p className="text-xs text-destructive">{t('errors.insufficientSpendable')}</p>}
+          </div>
+        )}
+
         <Button size="lg" className="w-full rounded-full" disabled={anyBusy || !canPay} onClick={() => void pay()}>
           {busy === 'group-pay' ? <Loader2Icon className="size-4 animate-spin" /> : <SendIcon className="size-4" />}
           {total > 0n ? t('groups.payButton', { amount: main(total) }) : t('groups.enterAmount')}
         </Button>
         {total > 0n && (
           <p className="-mt-2 text-center text-xs text-muted-foreground tabular-nums">
-            {t('groups.fromWalletShort')}
+            {t(fromSpend ? 'groups.fromSpendShort' : 'groups.fromWalletShort')}
             {approx(total) && ` · ${approx(total)}`}
           </p>
         )}

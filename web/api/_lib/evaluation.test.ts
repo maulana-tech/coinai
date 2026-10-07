@@ -1,7 +1,7 @@
 // Run: npx tsx --test api/_lib/evaluation.test.ts
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { agentMix, agentSplit, FIXED_SPLIT, incomes, LIMITS, LOOKBACK, regimeAt, replay, type PaymentState, type Prices } from './evaluation.ts'
+import { agentMix, agentSplit, basketReplay, FIXED_SPLIT, incomes, LIMITS, LOOKBACK, regimeAt, replay, type PaymentState, type Prices } from './evaluation.ts'
 
 const DAYS = 90
 const series = (start: number, dailyFactor: number, wobble = 0) =>
@@ -78,4 +78,26 @@ test('agent replay stays inside the signed limits and records a state per paymen
     assert.ok(r.avgSplitPercent >= LIMITS.min && r.avgSplitPercent <= LIMITS.max, pattern)
     assert.equal(r.states.length, incomes(pattern, DAYS).filter((x) => x > 0).length)
   }
+})
+
+test('basket: flat prices keep 1,000; Plutus trims coins on a slide and loses less than static weights', () => {
+  const withCake = (p: Prices, f: number): Prices => ({ ...p, CAKE: series(2, f) })
+  const calm = basketReplay('plutus', withCake(flat, 1))
+  assert.equal(calm.value, 1000)
+  assert.equal(calm.weightChanges, 0)
+  const slide = withCake({ BNB: series(600, 0.995), BTC: series(60_000, 0.995), ETH: series(3000, 0.995) }, 0.995)
+  const stat = basketReplay('static', slide)
+  const plutus = basketReplay('plutus', slide)
+  assert.ok(stat.value < 1000)
+  assert.ok(plutus.value > stat.value, `${plutus.value} vs ${stat.value}`) // 70% tUSDT in risk_off
+  assert.ok(plutus.worstDipPct < stat.worstDipPct)
+})
+
+test('on a rally then a slide the agent (risk_off tilt + Athena rebalance) dips less than the fixed rule', () => {
+  // a rally, then a slide: the agent's growth position is moved out once the regime flips
+  const up = (s: number) => Array.from({ length: LOOKBACK + DAYS + 1 }, (_, i) => (i < 60 ? s * 1.006 ** i : s * 1.006 ** 60 * 0.99 ** (i - 60)))
+  const p: Prices = { BNB: up(600), BTC: up(60_000), ETH: up(3000) }
+  const fixed = replay('fixed', 'salary', 'market', p)
+  const agent = replay('agent', 'salary', 'market', p)
+  assert.ok(agent.worstDipPct < fixed.worstDipPct, `${agent.worstDipPct} vs ${fixed.worstDipPct}`)
 })

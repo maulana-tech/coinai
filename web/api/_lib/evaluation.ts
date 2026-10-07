@@ -5,12 +5,12 @@
 
 import type { VaultMix } from '../../shared/pool.js'
 import { annualizedVolatility } from '../../shared/market.js'
-import type { IncomePattern, Metrics, VaultModel } from '../../shared/evaluation-types.js'
-import { fitAllocation, profileMix } from './decision.js'
+import type { BasketMetrics, IncomePattern, Metrics, VaultModel } from '../../shared/evaluation-types.js'
+import { fitAllocation, profileMix, riskOffRebalance, smartWeights } from './decision.js'
 import type { Target } from './guard.js'
 
 export type Regime = 'risk_on' | 'neutral' | 'risk_off'
-export type Prices = { BNB: number[]; BTC: number[]; ETH: number[] } // daily closes, oldest first
+export type Prices = { BNB: number[]; BTC: number[]; ETH: number[]; CAKE?: number[] } // daily closes, oldest first; CAKE for the basket
 
 const VAULTS: Target[] = ['conservative', 'balanced', 'growth']
 const APY: Record<Target, number> = { conservative: 0.03, balanced: 0.06, growth: 0.12 } // the deployed vaults' metadata
@@ -158,10 +158,22 @@ export function replay(policy: 'fixed' | 'agent', pattern: IncomePattern, model:
   const paymentAmounts: number[] = []
   const states: PaymentState[] = []
   let previousSpendable: number | null = null
+  let lastRegime: Regime | null = null
 
   for (let d = 0; d < days; d++) {
     const t = LOOKBACK + d + 1
     for (const v of VAULTS) pos[v] *= 1 + dailyReturn(model, v, p, t)
+
+    // Athena (v2, daily run): a fresh risk_off read moves the Growth position to Conservative.
+    if (policy === 'agent') {
+      const regime = regimeAt(p, t)
+      const shift = riskOffRebalance(regime, lastRegime, BigInt(Math.round(pos.growth * 1e6)), 1_000_000n)
+      if (shift) {
+        pos.conservative += pos.growth
+        pos.growth = 0
+      }
+      lastRegime = regime
+    }
 
     if (income[d] > 0) {
       const saved = (income[d] * split) / 100
@@ -214,4 +226,54 @@ export function replay(policy: 'fixed' | 'agent', pattern: IncomePattern, model:
     avgSplitPercent: round(splitDays / days, 1),
     states,
   }
+}
+
+// ─── AI Smart Money basket: Plutus vs static weights ─────────────────────────
+
+const BASKET_ASSETS = [
+  { symbol: 'tUSDT', maxBps: 10_000 },
+  { symbol: 'BNB', maxBps: 5_000 },
+  { symbol: 'BTC', maxBps: 5_000 },
+  { symbol: 'ETH', maxBps: 5_000 },
+  { symbol: 'CAKE', maxBps: 2_000 },
+] // the deployed BasketVault (evm/script/DeployV2.s.sol)
+
+/**
+ * 1,000 tUSDT in the basket over the window. "static" holds the deploy's initial (neutral) weights; "plutus" moves to
+ * smartWeights(regime) whenever the daily regime read changes, like the cron's setSmartWeights plus the vault's sync.
+ * ponytail: rebalances at the close with no swap cost; the vault does the same at Chainlink prices, so it's close.
+ */
+export function basketReplay(policy: 'static' | 'plutus', p: Prices): BasketMetrics {
+  if (!p.CAKE) throw new Error('basket replay needs CAKE closes')
+  const series = [null, p.BNB, p.BTC, p.ETH, p.CAKE] // tUSDT is $1
+  const days = p.BNB.length - LOOKBACK - 1
+  const start = LOOKBACK + 1
+  const neutral = smartWeights('neutral', BASKET_ASSETS)!
+  let units: number[] = []
+  const buy = (value: number, w: number[], t: number) =>
+    (units = w.map((bps, i) => (value * bps) / 10_000 / (series[i] ? series[i]![t] : 1)))
+  const valueAt = (t: number) => units.reduce((s, u, i) => s + u * (series[i] ? series[i]![t] : 1), 0)
+
+  let regime: Regime | null = null
+  let peak = 0
+  let worstDip = 0
+  let changes = 0
+  buy(1000, neutral, start - 1)
+  for (let d = 0; d < days; d++) {
+    const t = start + d
+    if (policy === 'plutus') {
+      const now = regimeAt(p, t)
+      if (now !== regime) {
+        buy(valueAt(t), smartWeights(now, BASKET_ASSETS)!, t)
+        if (regime !== null) changes++
+        regime = now
+      }
+    }
+    const v = valueAt(t)
+    peak = Math.max(peak, v)
+    worstDip = Math.max(worstDip, ((peak - v) / peak) * 100)
+  }
+  const value = valueAt(start + days - 1)
+  const round = (x: number) => Math.round(x * 100) / 100
+  return { value: round(value), gainPct: round(((value - 1000) / 1000) * 100), worstDipPct: round(worstDip), weightChanges: changes }
 }

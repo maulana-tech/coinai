@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRightIcon, PlusIcon } from 'lucide-react'
 import { LogoMark } from '@/components/brand/logo'
 import { Council } from '@/components/landing/council'
+import { GroupKinds, LiveGroups } from '@/components/landing/groups'
 import { Reveal, Star, Title } from '@/components/landing/kit'
 import { mono, RAIL } from '@/components/landing/styles'
 import { EXPLORER_CONTRACT_URL } from '@/lib/config'
@@ -17,6 +18,7 @@ const SECTIONS: { id: string; label: MessageKey; quiet?: boolean }[] = [
   { id: 'model', label: 'lp.navModel' },
   { id: 'agents', label: 'lp.navAgents' },
   { id: 'team', label: 'lp.navTeam', quiet: true },
+  { id: 'groups', label: 'lp.navGroups' },
   { id: 'terms', label: 'lp.navTerms' },
   { id: 'questions', label: 'lp.navQuestions' },
 ]
@@ -165,6 +167,41 @@ function FilmChapter({ id, film, tag, title, body }: { id: string; film: string;
   )
 }
 
+// Saving together (GroupFunds): a film chapter, the three kinds of group, then the groups live on-chain right now.
+function Groups() {
+  const t = useT()
+  return (
+    <section id="groups" className={cn('relative scroll-mt-20 bg-[#0b0b0b] text-white', RAIL)}>
+      <div className="relative isolate flex min-h-svh flex-col justify-end">
+        <Film name="groups" dim="from-black/70 via-black/25" />
+        <div className="relative border-t border-white/15 px-6 pt-10 pb-16 md:px-10 lg:px-14">
+          <Star className="top-0 left-0" />
+          <Reveal>
+            <Title k="lp.groupsTitle" />
+          </Reveal>
+          <Reveal delay={0.15} className="mt-8 flex flex-col gap-4 md:flex-row md:items-start md:gap-12">
+            <span className={cn(mono, 'shrink-0 rounded-[3px] border border-white/25 bg-black/40 px-3 py-1.5 text-white/80')}>{t('lp.groupsTag')}</span>
+            <div className="max-w-lg">
+              <p className="text-[15px] leading-relaxed text-white/85">{t('lp.groupsBody')}</p>
+              <Link
+                to="/groups/new"
+                className={cn(mono, 'mt-6 inline-flex items-center gap-3 rounded-[3px] border border-white/30 bg-black/50 py-2 pr-2 pl-4 hover:border-white/60')}
+              >
+                {t('lp.groupsCta')}
+                <span className="flex size-6 items-center justify-center rounded-[2px] border border-white/30">
+                  <ArrowRightIcon className="size-3" />
+                </span>
+              </Link>
+            </div>
+          </Reveal>
+        </div>
+      </div>
+      <GroupKinds />
+      <LiveGroups />
+    </section>
+  )
+}
+
 function Terms() {
   const t = useT()
   const blocks: { title: MessageKey; body: MessageKey; note: MessageKey }[] = [
@@ -259,6 +296,7 @@ export function Landing() {
         <FilmChapter id="model" film="save" tag="lp.modelTag" title="lp.modelTitle" body="lp.modelBody" />
         <FilmChapter id="agents" film="agents" tag="lp.agentsTag" title="lp.agentsTitle" body="lp.agentsBody" />
         <Council />
+        <Groups />
         <Terms />
         <Questions />
       </main>

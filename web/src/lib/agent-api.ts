@@ -4,12 +4,20 @@
 import { signMessage } from '@wagmi/core'
 import { config } from '@/lib/wagmi'
 import { AGENT_ADDRESS } from '@/lib/config'
-import type { AgentPolicy, YieldTarget } from '@/lib/types'
-import type { SavedPool, VaultMix } from '../../shared/pool.js'
+import type { AgentPolicy, Position, YieldTarget } from '@/lib/types'
+import type { PublicPool, SavedPool, VaultMix } from '../../shared/pool.js'
 
 export type AgentStep = {
   agent: 'market' | 'savings' | 'investment' | 'guard' | 'risk' | 'executor'
-  proposal?: { kind: 'set_split' | 'invest'; bps?: number; amount?: string; target?: YieldTarget; reason: string }
+  proposal?: {
+    kind: 'set_split' | 'invest' | 'rebalance' | 'contribute'
+    bps?: number
+    amount?: string
+    target?: Position
+    from?: Position // rebalance
+    fundId?: number // contribute
+    reason: string
+  }
   outcome: 'analyzed' | 'proposed' | 'skipped' | 'rejected' | 'approved' | 'executed' | 'failed'
   note?: string
   code?: LlmFailure
@@ -197,12 +205,15 @@ export const agentApi = {
       method: 'POST',
       body: JSON.stringify({ channel: 'telegram', locale }),
     }),
-  profile: (address: string) => call<{ profile: InvestorProfile }>(address, '/api/agent/profile'),
+  profile: (address: string) => call<{ profile: InvestorProfile; goals: Goal[] }>(address, '/api/agent/profile'),
+  // Savings pockets (C1): the whole list is saved at once.
+  saveGoals: (address: string, goals: Goal[]) =>
+    call<{ goals: Goal[] }>(address, '/api/agent/profile?goals', { method: 'POST', body: JSON.stringify({ goals }) }),
   saveProfile: (address: string, profile: InvestorProfile) =>
     call<{ profile: InvestorProfile }>(address, '/api/agent/profile', { method: 'POST', body: JSON.stringify(profile) }),
   // Saved pools; the active one is the benchmark the Investment Strategist follows.
   pools: (address: string) => call<PoolStore>(address, '/api/pools'),
-  savePool: (address: string, pool: { id?: string; name: string; weights: Record<string, number> }) =>
+  savePool: (address: string, pool: { id?: string; name: string; weights: Record<string, number>; public?: boolean }) =>
     call<PoolStore>(address, '/api/pools', { method: 'POST', body: JSON.stringify(pool) }),
   setActivePool: (address: string, activeId: string | null) =>
     call<PoolStore>(address, '/api/pools', { method: 'PUT', body: JSON.stringify({ activeId }) }),
@@ -228,6 +239,19 @@ export const agentApi = {
       method: 'DELETE',
       body: JSON.stringify({ channel }),
     }),
+}
+
+/** Mirrors `Goal` in api/_lib/rewards.ts: a named pocket holding `share`% of all savings. */
+export type Goal = { id: string; name: string; target: number; deadline: number; share: number; createdAt: number }
+
+/** Points, referrals and the weekly saving streak (api/_lib/rewards.ts). */
+export type Rewards = { points: number; referrals: number; referredBy: string | null; streakWeeks: number; bestStreak: number }
+
+/** Public reads that need no sign-in. */
+export const publicApi = {
+  rewards: async (address: string): Promise<Rewards> =>
+    readJson<Rewards>(await fetch(`/api/agent/autopilot?user=${encodeURIComponent(address)}`)),
+  publicPools: async (): Promise<PublicPool[]> => (await readJson<{ pools: PublicPool[] }>(await fetch('/api/pools?public'))).pools,
 }
 
 /** True when the wallet's on-chain policy points at our agent and hasn't expired. */

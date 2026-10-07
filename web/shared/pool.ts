@@ -134,7 +134,9 @@ export function projectRange(amount: number, volatilityPct: number, horizons = [
 // through its risk mix: calm assets → Conservative, core assets → Balanced, the rest → Growth.
 
 export type VaultMix = { conservative: number; balanced: number; growth: number } // percent, sums to 100
-export type SavedPool = { id: string; name: string; weights: Weights; createdAt: number }
+export type SavedPool = { id: string; name: string; weights: Weights; createdAt: number; public?: boolean }
+/** A pool someone shared on the community leaderboard (C3); the owner is shown shortened. */
+export type PublicPool = { owner: string; id: string; name: string; weights: Weights; createdAt: number }
 
 const CORE = new Set<string>(['BTC', 'ETH', 'BNB', 'SPY', 'QQQ'])
 

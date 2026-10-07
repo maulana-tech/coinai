@@ -81,6 +81,10 @@ export function llmFailure(e: unknown): LlmFailure {
 if (process.env.OPENROUTER_MODEL && modelFor('risk') === modelFor('strategist'))
   console.warn(`llm: the Risk Officer uses the strategists' model (${modelFor('risk')}); set OPENROUTER_MODEL_RISK to a different one.`)
 
+// Without max_tokens OpenRouter reserves the model's whole output window (64k for some), which a low-credit or
+// free account can't cover (402). Every reply here is a short JSON object or a ~150-word report.
+const MAX_TOKENS: Record<Role, number> = { strategist: 1200, risk: 1000, reporter: 900, chat: 1500 }
+
 async function completeWith(
   model: string,
   key: string,
@@ -98,6 +102,7 @@ async function completeWith(
     body: JSON.stringify({
       model,
       messages,
+      max_tokens: MAX_TOKENS[role],
       temperature: role === 'reporter' || role === 'chat' ? 0.5 : 0.2,
       ...(opts.tools && { tools: opts.tools }),
       ...(opts.json && { response_format: { type: 'json_object' } }),

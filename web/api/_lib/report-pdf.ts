@@ -123,7 +123,7 @@ export async function renderReportPdf(opts: {
   paragraph(run.report.split('\n').find((l) => l.trim()) ?? '', serif, 15, COL.ink, M, CONTENT, 1.3)
 
   // Summary boxes
-  const invested = state.vaults.reduce((s, v) => s + v.userPosition, 0n)
+  const invested = state.vaults.reduce((s, v) => s + v.userPosition, state.positions.basket) // vaults + the AI Smart Money basket
   const total = state.spend + state.savings + invested
   section(t.summary)
   const boxes: [string, bigint][] = [

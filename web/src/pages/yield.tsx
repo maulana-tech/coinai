@@ -2,7 +2,9 @@ import { RefreshCwIcon } from 'lucide-react'
 import { ConnectPrompt } from '@/components/connect-prompt'
 import { PageHeader } from '@/components/page-header'
 import { Button } from '@/components/ui/button'
-import type { YieldTarget } from '@/lib/types'
+import { BasketCard } from '@/components/basket-card'
+import { MoveCard } from '@/components/move-card'
+import type { Position } from '@/lib/types'
 import { YieldDepositCard } from '@/components/yield-deposit-card'
 import { YieldPositionCard } from '@/components/yield-position-card'
 import { YieldSourcesCard } from '@/components/yield-sources-card'
@@ -11,23 +13,21 @@ import { useT } from '@/lib/i18n'
 import { coinai } from '@/lib/coinai'
 import { useYieldData } from '@/lib/use-yield-data'
 import { useWallet } from '@/lib/wallet'
+import { mainVault } from '@/lib/yield'
 
 export function YieldPage() {
   const { address } = useWallet()
   const { account, accountStatus, activity, rates, busy, runAction, refresh } = useAppState()
-  const { vaults, loading, refresh: refreshYield } = useYieldData(address)
+  const { vaults, loading, refresh: refreshYield } = useYieldData()
   const t = useT()
 
   if (!address) return <ConnectPrompt />
 
-  const handleDeposit = async (amount: bigint, target: YieldTarget) => {
+  const handleDeposit = async (amount: bigint, target: Position) => {
     const result = await runAction('yield-deposit', 'success.yieldDeposited', () =>
       coinai.investSavings(address, amount, target),
     )
-    if (result) {
-      await refresh()
-      await refreshYield()
-    }
+    if (result) await refreshYield()
     return Boolean(result)
   }
 
@@ -51,7 +51,6 @@ export function YieldPage() {
       <YieldPositionCard
         account={account}
         activity={activity}
-        vaults={vaults}
         loading={accountStatus === 'loading'}
         rates={rates}
       />
@@ -64,13 +63,14 @@ export function YieldPage() {
           busy={busy === 'yield-deposit'}
         />
       )}
+      {account && <MoveCard account={account} />}
       <YieldSourcesCard
         vaults={vaults}
         loading={loading}
         rates={rates}
-        selectedTarget={account?.yieldTarget}
-        onSwitched={() => void refreshYield()}
+        selectedTarget={mainVault(account)}
       />
+      <BasketCard address={address} />
     </section>
   )
 }

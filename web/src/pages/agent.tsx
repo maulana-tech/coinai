@@ -24,13 +24,16 @@ import { AGENT_ROLES, agentRoleFor } from '@/lib/agent-roles'
 import { useAppState } from '@/lib/app-state'
 import { coinai } from '@/lib/coinai'
 import { AGENT_ADDRESS, explorerTxUrl } from '@/lib/config'
-import { formatDate, formatDateTime, useT, type MessageKey } from '@/lib/i18n'
+import { formatDate, formatDateTime, formatMoney, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
-import type { AgentPolicy, YieldTarget } from '@/lib/types'
+import { parseToken, tokenToInput } from '@/lib/format'
+import { getListings, hire, type Listing } from '@/lib/registry'
+import { SKILL_INVEST, SKILL_PAY, SKILL_SPLIT, type AgentPolicy, type Position } from '@/lib/types'
+import { cn } from '@/lib/utils'
+import { POSITION_NAME } from '@/lib/yield'
 import { useWallet } from '@/lib/wallet'
 
 const DURATIONS = [7, 30, 90]
-const DEFAULT_RANGE: [number, number] = [10, 40]
 
 const OUTCOME: Record<AgentStep['outcome'], { label: MessageKey; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   analyzed: { label: 'agent.outcomeAnalyzed', variant: 'secondary' },
@@ -42,29 +45,45 @@ const OUTCOME: Record<AgentStep['outcome'], { label: MessageKey; variant: 'defau
   failed: { label: 'agent.outcomeFailed', variant: 'destructive' },
 }
 
-const VAULT_NAME_KEY: Record<YieldTarget, MessageKey> = {
-  conservative: 'yield.sourceConservativeName',
-  balanced: 'yield.sourceBalancedName',
-  growth: 'yield.sourceGrowthName',
-}
-
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 
 // ─── Permission ──────────────────────────────────────────────────────────────
 
+// Each skill is granted on-chain (CoinAIV2.setAgent) to the one agent wallet; the god names match the landing council.
+const SKILLS: { bit: number; god: string; label: MessageKey; hint: MessageKey }[] = [
+  { bit: SKILL_SPLIT, god: 'Demeter', label: 'agent.skillSplit', hint: 'agent.skillSplitHint' },
+  { bit: SKILL_INVEST, god: 'Athena', label: 'agent.skillInvest', hint: 'agent.skillInvestHint' },
+  { bit: SKILL_PAY, god: 'Hermes', label: 'agent.skillPay', hint: 'agent.skillPayHint' },
+]
+const PRESETS: { label: MessageKey; range: [number, number] }[] = [
+  { label: 'agent.presetCareful', range: [10, 25] },
+  { label: 'agent.presetBalanced', range: [10, 40] },
+  { label: 'agent.presetAmbitious', range: [20, 60] },
+]
+const DEFAULT_SKILLS = SKILL_SPLIT | SKILL_INVEST
+const DEFAULT_BUDGET = '10'
+const EXAMPLE_PAYMENT = 100_000_000n // 100 tUSDT: the worked example under the split range
+
 function PermissionCard({ address }: { address: string }) {
   const t = useT()
-  const { locale } = useSettings()
-  const { busy, runAction } = useAppState()
+  const { locale, primaryCurrency } = useSettings()
+  const { busy, rates, runAction } = useAppState()
   const [policy, setPolicy] = useState<AgentPolicy | null>(null)
+  const [skills, setSkills] = useState<number | null>(null)
   const [range, setRange] = useState<[number, number] | null>(null)
+  const [budget, setBudget] = useState<string | null>(null)
   const [days, setDays] = useState(30)
+  const [others, setOthers] = useState<AgentPolicy[]>([])
   const anyBusy = busy !== null
 
   const [autopilotOn, setAutopilotOn] = useState(false)
   const load = useCallback(() => {
-    coinai.getAgent(address).then(setPolicy).catch(() => setPolicy(null))
+    coinai.getAgent(address, AGENT_ADDRESS).then(setPolicy).catch(() => setPolicy(null))
+    coinai
+      .listAgents(address)
+      .then((list) => setOthers(list.filter((p) => p.agent && p.agent.toLowerCase() !== AGENT_ADDRESS.toLowerCase())))
+      .catch(() => setOthers([]))
   }, [address])
   useEffect(load, [load])
 
@@ -74,26 +93,51 @@ function PermissionCard({ address }: { address: string }) {
     if (active) void autopilot.register(address).then(setAutopilotOn)
     else setAutopilotOn(false)
   }, [active, address])
+
+  const granted = active && policy ? policy.skills : 0
+  const picked = skills ?? (granted || DEFAULT_SKILLS)
   const [min, max] =
-    range ?? (active && policy ? [policy.minSplitBps / 100, policy.maxSplitBps / 100] : DEFAULT_RANGE)
+    range ?? (active && policy && policy.skills & SKILL_SPLIT ? [policy.minSplitBps / 100, policy.maxSplitBps / 100] : PRESETS[1].range)
+  const budgetText = budget ?? (active && policy && policy.skills & SKILL_PAY ? tokenToInput(policy.payBudget) : DEFAULT_BUDGET)
+  const budgetUnits = (() => {
+    try {
+      return parseToken(budgetText || '0')
+    } catch {
+      return null
+    }
+  })()
+  const has = (bit: number) => (picked & bit) !== 0
+  const money = (x: bigint) => formatMoney(x, primaryCurrency, rates, locale)
+  const invalid = picked === 0 || (has(SKILL_PAY) && (budgetUnits === null || budgetUnits <= 0n))
 
   const handleEnable = async () => {
+    if (invalid || budgetUnits === null) return
     const expiry = BigInt(Math.floor(Date.now() / 1000) + days * 86_400)
+    // without the split skill the range is meaningless; keep it valid (0–0) for the contract check
+    const [lo, hi] = has(SKILL_SPLIT) ? [min * 100, max * 100] : [0, 0]
     const ok = await runAction('agent-set', 'success.agentEnabled', () =>
-      coinai.setAgent(address, AGENT_ADDRESS, min * 100, max * 100, expiry),
+      coinai.setAgent(address, AGENT_ADDRESS, {
+        skills: picked,
+        minSplitBps: lo,
+        maxSplitBps: hi,
+        payBudget: has(SKILL_PAY) ? budgetUnits : 0n,
+        expiry,
+      }),
     )
     if (ok) {
+      setSkills(null)
       setRange(null)
+      setBudget(null)
       load()
     }
   }
 
-  const handleRevoke = async () => {
-    if (await runAction('agent-revoke', 'success.agentRevoked', () => coinai.revokeAgent(address))) load()
+  const handleRevoke = async (agent: string) => {
+    if (await runAction(`agent-revoke-${agent}`, 'success.agentRevoked', () => coinai.revokeAgent(address, agent))) load()
   }
 
   const status = active
-    ? t('agent.statusActive', { date: formatDate(policy!.expiry, locale), min: policy!.minSplitBps / 100, max: policy!.maxSplitBps / 100 })
+    ? t('agent.statusActiveV2', { date: formatDate(policy!.expiry, locale) })
     : policy?.agent
       ? t('agent.statusExpired')
       : t('agent.statusOff')
@@ -115,27 +159,51 @@ function PermissionCard({ address }: { address: string }) {
       </CardHeader>
       <CardContent className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="flex flex-col gap-4">
-          {active && policy ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agent.splitAllowed')}</p>
-                <p className="mt-1 text-lg font-semibold tabular-nums">
-                  {policy.minSplitBps / 100}% – {policy.maxSplitBps / 100}%
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agentRole.expiresLabel')}</p>
-                <p className="mt-1 text-lg font-semibold">{formatDate(policy.expiry, locale)}</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{status}</p>
+          <p className="text-sm text-muted-foreground">{status}</p>
+          {active && policy && (
+            <dl className="grid grid-cols-2 gap-4">
+              {SKILLS.filter((s) => policy.skills & s.bit).map((s) => (
+                <div key={s.bit}>
+                  <dt className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                    {s.god} · {t(s.label)}
+                  </dt>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums">
+                    {s.bit === SKILL_SPLIT
+                      ? `${policy.minSplitBps / 100}% – ${policy.maxSplitBps / 100}%`
+                      : s.bit === SKILL_PAY
+                        ? t('agent.budgetUsed', { used: money(policy.paidInWindow), budget: money(policy.payBudget) })
+                        : t('agent.skillOn')}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           )}
           {active && autopilotOn && (
             <p className="flex items-start gap-2 rounded-xl border bg-muted/40 px-3 py-2.5 text-sm">
               <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
               {t('agent.autopilotOn')}
             </p>
+          )}
+          {has(SKILL_PAY) && <HermesHire address={address} />}
+          {others.length > 0 && (
+            <div className="space-y-2 border-t pt-4">
+              <p className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{t('agent.otherAgents')}</p>
+              <ul className="space-y-1.5">
+                {others.map((p) => (
+                  <li key={p.agent} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-mono text-xs">
+                      {p.agent!.slice(0, 6)}…{p.agent!.slice(-4)}
+                      <span className="ml-2 font-sans text-muted-foreground">
+                        {SKILLS.filter((s) => p.skills & s.bit).map((s) => t(s.label)).join(', ')}
+                      </span>
+                    </span>
+                    <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => void handleRevoke(p.agent!)}>
+                      {t('agent.revokeButton')}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           <p className="mt-auto flex items-start gap-2 border-t pt-4 text-xs text-muted-foreground">
             <ShieldCheckIcon className="mt-0.5 size-3.5 shrink-0" />
@@ -146,24 +214,97 @@ function PermissionCard({ address }: { address: string }) {
           <p className="rounded-xl border bg-muted/40 p-3 text-sm text-muted-foreground">{t('agent.notConfigured')}</p>
         ) : (
           <div className="space-y-5 lg:border-l lg:pl-6">
-            <div className="space-y-3">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="text-sm font-medium">{t('agent.rangeLabel')}</p>
-                <p className="text-2xl font-semibold tracking-tight tabular-nums">
-                  {min}% – {max}%
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t('agent.skillsLabel')}</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {SKILLS.map((s) => (
+                  <button
+                    key={s.bit}
+                    type="button"
+                    aria-pressed={has(s.bit)}
+                    disabled={anyBusy}
+                    onClick={() => setSkills(picked ^ s.bit)}
+                    className={cn(
+                      'flex flex-col items-start gap-1 rounded-xl border p-3 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60',
+                      has(s.bit) ? 'border-primary bg-primary/5' : 'hover:border-primary/40',
+                    )}
+                  >
+                    <span className="flex w-full items-center justify-between gap-2 text-sm font-medium">
+                      {s.god}
+                      <span
+                        className={cn('size-3.5 rounded-full border', has(s.bit) ? 'border-primary bg-primary' : 'border-muted-foreground/40')}
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <span className="text-xs font-medium">{t(s.label)}</span>
+                    <span className="text-xs text-muted-foreground">{t(s.hint)}</span>
+                  </button>
+                ))}
+              </div>
+              {picked === 0 && <p className="text-xs text-destructive">{t('agent.skillsNone')}</p>}
+            </div>
+            {has(SKILL_SPLIT) && (
+              <div className="space-y-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-medium">{t('agent.rangeLabel')}</p>
+                  <p className="text-2xl font-semibold tracking-tight tabular-nums">
+                    {min}% – {max}%
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {PRESETS.map((p) => (
+                    <Button
+                      key={p.label}
+                      type="button"
+                      size="sm"
+                      variant={min === p.range[0] && max === p.range[1] ? 'default' : 'outline'}
+                      disabled={anyBusy}
+                      onClick={() => setRange(p.range)}
+                    >
+                      {t(p.label)} · {p.range[0]}–{p.range[1]}%
+                    </Button>
+                  ))}
+                </div>
+                <Slider
+                  value={[min, max]}
+                  min={0}
+                  max={100}
+                  step={5}
+                  minStepsBetweenThumbs={0}
+                  disabled={anyBusy}
+                  aria-label={t('agent.rangeLabel')}
+                  onValueChange={(v) => setRange([v[0], v[1]])}
+                />
+                <p className="text-sm text-muted-foreground">
+                  {t('agent.rangeExample', {
+                    payment: money(EXAMPLE_PAYMENT),
+                    min: money((EXAMPLE_PAYMENT * BigInt(min)) / 100n),
+                    max: money((EXAMPLE_PAYMENT * BigInt(max)) / 100n),
+                  })}
                 </p>
               </div>
-              <Slider
-                value={[min, max]}
-                min={0}
-                max={100}
-                step={1}
-                minStepsBetweenThumbs={0}
-                disabled={anyBusy}
-                onValueChange={(v) => setRange([v[0], v[1]])}
-              />
-              <p className="text-sm text-muted-foreground">{t('agent.rangeHint', { min, max })}</p>
-            </div>
+            )}
+            {has(SKILL_PAY) && (
+              <div className="space-y-1.5">
+                <label htmlFor="pay-budget" className="text-sm font-medium">
+                  {t('agent.budgetLabel')}
+                </label>
+                <div className="relative">
+                  <Input
+                    id="pay-budget"
+                    inputMode="decimal"
+                    value={budgetText}
+                    disabled={anyBusy}
+                    onChange={(e) => setBudget(e.target.value.replace(',', '.'))}
+                    className="pr-16 tabular-nums"
+                  />
+                  <span className="absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">tUSDT</span>
+                </div>
+                <p className={cn('text-xs', budgetUnits === null || budgetUnits <= 0n ? 'text-destructive' : 'text-muted-foreground')}>
+                  {t('agent.budgetHint')}
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <p className="text-sm font-medium">{t('agent.durationLabel')}</p>
               <div className="flex gap-2">
@@ -182,13 +323,13 @@ function PermissionCard({ address }: { address: string }) {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button disabled={anyBusy} onClick={() => void handleEnable()}>
+              <Button disabled={anyBusy || invalid} onClick={() => void handleEnable()}>
                 {busy === 'agent-set' && <Loader2Icon className="mr-2 size-4 animate-spin" />}
                 {active ? t('agent.updateButton') : t('agent.enableButton')}
               </Button>
               {policy?.agent && (
-                <Button variant="outline" disabled={anyBusy} onClick={() => void handleRevoke()}>
-                  {busy === 'agent-revoke' && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+                <Button variant="outline" disabled={anyBusy} onClick={() => void handleRevoke(AGENT_ADDRESS)}>
+                  {busy === `agent-revoke-${AGENT_ADDRESS}` && <Loader2Icon className="mr-2 size-4 animate-spin" />}
                   {t('agent.revokeButton')}
                 </Button>
               )}
@@ -200,6 +341,42 @@ function PermissionCard({ address }: { address: string }) {
   )
 }
 
+// Hermes is listed in AgentRegistry for 1 tUSDT per 30 days; the backend only pays dues while he is hired.
+function HermesHire({ address }: { address: string }) {
+  const t = useT()
+  const { locale } = useSettings()
+  const { busy, rates, runAction } = useAppState()
+  const [listing, setListing] = useState<Listing | null>(null)
+  const load = useCallback(() => {
+    getListings(address)
+      .then((all) => setListing(all.find((l) => l.name === 'Hermes' && l.active) ?? null))
+      .catch(() => setListing(null))
+  }, [address])
+  useEffect(load, [load])
+  if (!listing) return null
+
+  const hiredUntil = Number(listing.rentedUntil) * 1000
+  const hired = hiredUntil > Date.now()
+  const handleHire = async () => {
+    if (await runAction('hire', 'success.hired', () => hire(address, listing, 1))) load()
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border p-3 text-sm">
+      <p className="font-medium">{t('agent.hermesTitle')}</p>
+      <p className="text-xs text-muted-foreground">
+        {hired
+          ? t('agent.hermesHired', { date: formatDate(listing.rentedUntil, locale) })
+          : t('agent.hermesNotHired', { fee: formatMoney(listing.feePer30Days, 'usdt', rates, locale) })}
+      </p>
+      <Button size="sm" variant={hired ? 'outline' : 'default'} disabled={busy !== null} onClick={() => void handleHire()}>
+        {busy === 'hire' && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+        {hired ? t('agent.hermesExtend') : t('agent.hermesHire')}
+      </Button>
+    </div>
+  )
+}
+
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
 export function StepRow({ step }: { step: AgentStep }) {
@@ -207,11 +384,16 @@ export function StepRow({ step }: { step: AgentStep }) {
   const role = agentRoleFor(step.agent)
   const outcome = OUTCOME[step.outcome]
   const p = step.proposal
-  const title = p
-    ? p.kind === 'set_split'
+  const vault = (x: Position | undefined) => t(POSITION_NAME[x ?? 'balanced'])
+  const title = !p
+    ? null
+    : p.kind === 'set_split'
       ? t('agent.proposalSplit', { pct: (p.bps ?? 0) / 100 })
-      : t('agent.proposalInvest', { amount: p.amount ?? '', vault: t(VAULT_NAME_KEY[p.target ?? 'balanced']) })
-    : null
+      : p.kind === 'rebalance'
+        ? t('agent.proposalRebalance', { amount: p.amount ?? '', from: vault(p.from), vault: vault(p.target) })
+        : p.kind === 'contribute'
+          ? t('agent.proposalContribute', { amount: p.amount ?? '', id: String(p.fundId ?? '') })
+          : t('agent.proposalInvest', { amount: p.amount ?? '', vault: vault(p.target) })
   // An LLM failure reads as its cause in plain words; the raw provider message stays on hover.
   const detail = step.code ? t(`agent.llm_${step.code}` as MessageKey) : step.note || p?.reason
   return (
@@ -221,7 +403,9 @@ export function StepRow({ step }: { step: AgentStep }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-sm font-medium">{t(role.name)}</span>
+          <span className="text-sm font-medium">
+            {role.god} <span className="font-normal text-muted-foreground">· {t(role.name)}</span>
+          </span>
           <Badge variant={outcome.variant} className="text-[10px]">
             {t(outcome.label)}
           </Badge>
@@ -455,7 +639,9 @@ function TeamCard() {
                 </span>
                 <span className="text-[11px] text-muted-foreground tabular-nums">0{i + 1}</span>
               </span>
-              <span className="text-sm font-medium">{t(r.name)}</span>
+              <span className="text-sm font-medium">
+                {r.god} <span className="font-normal text-muted-foreground">· {t(r.name)}</span>
+              </span>
               <span className="text-xs text-muted-foreground">{t(r.tagline)}</span>
             </Link>
           ))}

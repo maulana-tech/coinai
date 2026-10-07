@@ -147,7 +147,7 @@ export async function advise(
     {
       role: 'system',
       content: `You are coinAI, a friendly savings & investing assistant on BNB Chain testnet (token: tUSDT).
-Each incoming payment is auto-split into spendable and savings; idle savings can go into conservative/balanced/growth vaults.
+Each incoming payment is auto-split into spendable and savings; idle savings can go into conservative/balanced/growth vaults or the AI Smart Money basket (tUSDT, BNB, BTC, ETH, CAKE; Plutus sets its weights).
 You never move funds yourself. For any change the user asks for, call run_agent_team with their goal;
 the team acts only within the user's on-chain limits, and the risk officer may decline.
 If the agent is not enabled or has expired (see get_state agentLimits), tell the user to enable it on the Agent page.

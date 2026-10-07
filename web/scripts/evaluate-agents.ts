@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { fetchHistory } from '../shared/market.js'
 import type { Evaluation, EvaluationRow, IncomePattern, LlmSpotCheck, Metrics, VaultModel } from '../shared/evaluation-types.js'
 import { confidenceGate, fitAllocation, readConfidence, referenceMix } from '../api/_lib/decision.js'
-import { agentMix, agentSplit, LIMITS, LOOKBACK, PATTERNS, regimeAt, replay, type PaymentState, type Prices } from '../api/_lib/evaluation.js'
+import { agentMix, agentSplit, basketReplay, LIMITS, LOOKBACK, PATTERNS, regimeAt, replay, type PaymentState, type Prices } from '../api/_lib/evaluation.js'
 
 const PATTERN_LIST: IncomePattern[] = ['salary', 'freelance', 'gig']
 const MODELS: VaultModel[] = ['testnet', 'market']
@@ -24,8 +24,8 @@ for (const f of ['.env', '.env.local']) if (existsSync(f)) process.loadEnvFile(f
 
 // ─── Replay ──────────────────────────────────────────────────────────────────
 
-const history = await fetchHistory(['BNBUSDT', 'BTCUSDT', 'ETHUSDT'], LOOKBACK + DAYS)
-const prices: Prices = { BNB: history.BNBUSDT, BTC: history.BTCUSDT, ETH: history.ETHUSDT }
+const history = await fetchHistory(['BNBUSDT', 'BTCUSDT', 'ETHUSDT', 'CAKEUSDT'], LOOKBACK + DAYS)
+const prices: Prices = { BNB: history.BNBUSDT, BTC: history.BTCUSDT, ETH: history.ETHUSDT, CAKE: history.CAKEUSDT }
 for (const [k, v] of Object.entries(prices)) if (v?.length !== LOOKBACK + DAYS + 1) throw new Error(`${k}: got ${v?.length ?? 0} closes`)
 
 const day = (d: number) => new Date(Date.now() - (DAYS - 1 - d) * 86_400_000).toISOString().slice(0, 10)
@@ -108,7 +108,6 @@ function context(s: PaymentState, profile: { risk: 'moderate'; horizon: 'medium'
       spendableBalance: fmt(s.spendable),
       idleSavings: fmt(s.idleSavings),
       savingsLockedUntil: null,
-      currentVaultPreference: 'balanced',
       payments: {
         count: s.paymentDays.length,
         totalReceived: fmt(received),
@@ -142,6 +141,7 @@ const evaluation: Evaluation = {
   window: { from: day(0), to: day(DAYS - 1), days: DAYS },
   regimeDays,
   rows,
+  basket: { static: basketReplay('static', prices), plutus: basketReplay('plutus', prices) },
   llm: await spotCheck(),
 }
 
@@ -165,5 +165,7 @@ for (const model of MODELS) {
       `| ${r.pattern} | ${money(r.fixed.contributed)} → ${money(r.agent.contributed)} | ${r.fixed.gainPct}% → ${r.agent.gainPct}% | ${r.fixed.worstDipPct}% → ${r.agent.worstDipPct}% | ${r.fixed.shortDays} → ${r.agent.shortDays} | ${r.fixed.avgSplitPercent}% → ${r.agent.avgSplitPercent}% |`,
     )
 }
+console.log('\n**AI Smart Money basket, 1,000 tUSDT (static weights → Plutus)**\n')
+console.log(`| Value | Gain | Worst dip | Weight changes |\n|---|---|---|---|\n| ${money(evaluation.basket!.static.value)} → ${money(evaluation.basket!.plutus.value)} | ${evaluation.basket!.static.gainPct}% → ${evaluation.basket!.plutus.gainPct}% | ${evaluation.basket!.static.worstDipPct}% → ${evaluation.basket!.plutus.worstDipPct}% | ${evaluation.basket!.plutus.weightChanges} |`)
 if (evaluation.llm) console.log('\nLive-model spot check:', evaluation.llm)
 console.log(`\nWrote ${target}`)

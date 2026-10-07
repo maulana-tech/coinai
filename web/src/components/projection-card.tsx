@@ -42,7 +42,7 @@ export function ProjectionCard({ address }: { address: string }) {
   const t = useT()
   const { locale, primaryCurrency } = useSettings()
   const { account, rates } = useAppState()
-  const { vaults } = useYieldData(address)
+  const { vaults } = useYieldData()
   const { analysis } = useMarket()
   const [stats, setStats] = useState<PaymentStats | null>(null)
   const [income, setIncome] = useState<string | null>(null) // null = use the average payment
@@ -56,10 +56,17 @@ export function ProjectionCard({ address }: { address: string }) {
   const monthlyIncome = income === null ? avgPayment : Number(income.replace(',', '.')) || 0
 
   const ready = account && vaults
-  const positions = ready ? YIELD_TARGETS.map((target) => ({ amount: Number(vaults[target].position) / 1e6, apy: vaults[target].apy })) : []
-  const start = ready ? Number(account.shares) / 1e6 + positions.reduce((s, p) => s + p.amount, 0) : 0
+  // ponytail: the basket has no fixed APY (it follows coin prices), so it projects flat at 0%
+  const positions = ready
+    ? [
+        ...YIELD_TARGETS.map((target) => ({ amount: Number(account.positions[target]) / 1e6, apy: vaults[target].apy })),
+        { amount: Number(account.positions.basket) / 1e6, apy: 0 },
+      ]
+    : []
+  const start = ready ? Number(account.idle) / 1e6 + positions.reduce((s, p) => s + p.amount, 0) : 0
   const split = ready ? account.splitBps / 10_000 : 0
-  const apy = ready ? weightedApy(positions, vaults[account.yieldTarget].apy) : 0
+  // nothing invested yet: assume new savings go to the Balanced vault
+  const apy = ready ? weightedApy(positions, vaults.balanced.apy) : 0
   const points = projectSavings({ start, monthlyContribution: monthlyIncome * split, apy })
   const end = points[points.length - 1]
 

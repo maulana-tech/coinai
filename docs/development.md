@@ -21,7 +21,7 @@ cd evm && ~/.foundry/bin/forge test  # 15 tests
 cd ../web && npm install && npm run dev   # http://localhost:5173
 ```
 
-Mock mode is on whenever `VITE_COINAI_ADDRESS` is empty: `lib/coinai.mock.ts` keeps accounts in memory and vault data is static.
+Mock mode is on only with `VITE_MOCK=1`: `lib/coinai.mock.ts` keeps accounts in memory and vault, basket and badge data is static. Without it the app reads the live v2 deployment, even when `VITE_*` values are empty.
 
 ## Full local stack (anvil)
 

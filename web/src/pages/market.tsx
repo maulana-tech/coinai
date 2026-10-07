@@ -3,7 +3,7 @@ import { BotIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { CoinIcon } from '@/components/brand/coin-icon'
 import { MarketBoard } from '@/components/market-board'
-import { SavedPools, VaultMixBar } from '@/components/saved-pools'
+import { CommunityPools, SavedPools, VaultMixBar } from '@/components/saved-pools'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -234,8 +234,22 @@ export function MarketPage() {
             if (editing.id === id) setEditing({ id: null, name: '' })
             void poolAction(() => agentApi.deletePool(address, id), 'pools.deleted')
           }}
+          onTogglePublic={(p) =>
+            void poolAction(
+              () => agentApi.savePool(address, { id: p.id, name: p.name, weights: p.weights as Record<string, number>, public: !p.public }),
+              p.public ? 'pools.unshared' : 'pools.shared',
+            )
+          }
         />
       )}
+      <CommunityPools
+        history={history}
+        me={address}
+        busy={poolBusy}
+        onCopy={(p) =>
+          void poolAction(() => agentApi.savePool(address!, { name: p.name, weights: p.weights as Record<string, number> }), 'pools.copied')
+        }
+      />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Builder */}
