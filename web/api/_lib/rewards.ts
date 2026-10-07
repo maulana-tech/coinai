@@ -84,8 +84,8 @@ export const BADGE = { STREAK_4_WEEKS: 3, GOAL_REACHED: 4, FIRST_AGENT_RUN: 5 } 
 export const BADGES_ABI = ['function badgesOf(address user) view returns (uint64[6])', 'function award(address user,uint8 badge)']
 const badgesAddress = () => process.env.BADGES_ADDRESS || DEPLOYMENT.v2.badges
 
-/** Mints the awarded badges the user has earned and doesn't hold yet; returns the tx hashes. */
-export async function awardBadges(user: string, earned: { streak: boolean; goal: boolean; agentRun: boolean }): Promise<string[]> {
+/** Mints the awarded badges the user has earned and doesn't hold yet; returns the badge ids it minted. */
+export async function awardBadges(user: string, earned: { streak: boolean; goal: boolean; agentRun: boolean }): Promise<number[]> {
   const want: number[] = []
   if (earned.streak) want.push(BADGE.STREAK_4_WEEKS)
   if (earned.goal) want.push(BADGE.GOAL_REACHED)
@@ -94,12 +94,12 @@ export async function awardBadges(user: string, earned: { streak: boolean; goal:
   const read = new Contract(badgesAddress(), BADGES_ABI, chainProvider())
   const held = (await read.badgesOf(user)) as bigint[]
   const c = new Contract(badgesAddress(), BADGES_ABI, agentWallet())
-  const out: string[] = []
+  const out: number[] = []
   for (const b of want) {
     if (held[b] !== 0n) continue
     const tx = await c.award(user, b)
     await tx.wait()
-    out.push(tx.hash as string)
+    out.push(b)
   }
   return out
 }
