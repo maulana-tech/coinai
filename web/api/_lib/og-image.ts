@@ -2,7 +2,7 @@
 // card style as the in-app share card (share-card.ts), drawn on the server from the chain so WhatsApp, Telegram, X
 // and Facebook show the live numbers without anyone downloading anything.
 
-import { Resvg } from '@resvg/resvg-js'
+import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import satori from 'satori'
 import { day, IMAGE, usdt, type OgFund, type OgGoal } from './og.js'
 
@@ -79,21 +79,35 @@ async function font(family: string, weight: number, text: string): Promise<Array
 export const ogImage = (f: OgFund, origin: string) => drawCard(ogCard(f), IMAGE[f.kind], origin)
 export const goalImage = (g: OgGoal, origin: string) => drawCard(goalCard(g), '/landing/save.jpg', origin)
 
+// resvg as WebAssembly served from our own /og/ (public/og/resvg.wasm, copied from @resvg/resvg-wasm): the native
+// @resvg/resvg-js binding failed to load on Vercel and took the whole function down. Initialised once per instance.
+let wasm: Promise<void> | null = null
+const ready = (origin: string) => (wasm ??= initWasm(fetch(`${origin}/og/resvg.wasm`)).catch((e) => ((wasm = null), Promise.reject(e))))
+
+// Pictures go in as data URLs: satori refuses to fetch some hosts (its SSRF guard), and we already know the bytes.
+async function dataUrl(url: string): Promise<string> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${url} ${res.status}`)
+  return `data:${res.headers.get('content-type') ?? 'image/jpeg'};base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`
+}
+
 async function drawCard(c: Card, art: string, origin: string): Promise<Response> {
   const host = origin.replace(/^https?:\/\//, '')
   const sans = `coinAI${c.status}${c.amount}${c.amountOf}${c.meta}${c.cta}${host}/g/0123456789`
-  const [serif, sansMid, sansBold, mono] = await Promise.all([
+  const [serif, sansMid, sansBold, mono, artSrc, logoSrc] = await Promise.all([
     font('Cormorant Garamond', 600, c.title + '…'),
     font('DM Sans', 500, sans),
     font('DM Sans', 700, sans),
     font('Space Mono', 700, c.label + c.status.toUpperCase()),
+    dataUrl(`${origin}${art}`),
+    dataUrl(`${origin}/logo-dark.png`),
   ])
 
   const tree = h(
     'div',
     { width: W, height: H, position: 'relative', color: '#fff', fontFamily: 'DM Sans', backgroundColor: '#0b0b0b' },
     // the art only on the right: a photo behind the text would double the PNG (chat apps skip large previews)
-    { type: 'img', props: { src: `${origin}${art}`, width: ART, height: H, style: { position: 'absolute', top: 0, right: 0, width: ART, height: H, objectFit: 'cover' } } },
+    { type: 'img', props: { src: artSrc, width: ART, height: H, style: { position: 'absolute', top: 0, right: 0, width: ART, height: H, objectFit: 'cover' } } },
     h('div', { position: 'absolute', top: 0, right: ART - 160, width: 160, height: H, backgroundImage: 'linear-gradient(90deg, #0b0b0b 0%, rgba(11,11,11,0.6) 50%, rgba(11,11,11,0) 100%)' }),
     h(
       'div',
@@ -105,7 +119,7 @@ async function drawCard(c: Card, art: string, origin: string): Promise<Response>
         h(
           'div',
           { alignItems: 'center' },
-          { type: 'img', props: { src: `${origin}/logo-dark.png`, width: 48, height: 48, style: { width: 48, height: 48 } } },
+          { type: 'img', props: { src: logoSrc, width: 48, height: 48, style: { width: 48, height: 48 } } },
           h('div', { marginLeft: 14, fontSize: 34, fontWeight: 500 }, 'coinAI'),
         ),
         h('div', { padding: '8px 20px', borderRadius: 999, backgroundColor: 'rgba(244,237,224,0.92)', color: '#0b0b0b', fontFamily: 'Space Mono', fontSize: 18, letterSpacing: 3 }, c.status.toUpperCase()),
@@ -135,16 +149,19 @@ async function drawCard(c: Card, art: string, origin: string): Promise<Response>
     ),
   )
 
-  const svg = await satori(tree as never, {
-    width: W,
-    height: H,
-    fonts: [
-      { name: 'Cormorant Garamond', data: serif, weight: 600, style: 'normal' },
-      { name: 'DM Sans', data: sansMid, weight: 500, style: 'normal' },
-      { name: 'DM Sans', data: sansBold, weight: 700, style: 'normal' },
-      { name: 'Space Mono', data: mono, weight: 700, style: 'normal' },
-    ],
-  })
+  const [svg] = await Promise.all([
+    satori(tree as never, {
+      width: W,
+      height: H,
+      fonts: [
+        { name: 'Cormorant Garamond', data: serif, weight: 600, style: 'normal' },
+        { name: 'DM Sans', data: sansMid, weight: 500, style: 'normal' },
+        { name: 'DM Sans', data: sansBold, weight: 700, style: 'normal' },
+        { name: 'Space Mono', data: mono, weight: 700, style: 'normal' },
+      ],
+    }),
+    ready(origin),
+  ])
   const png = new Resvg(svg, { fitTo: { mode: 'width', value: 800 } }).render().asPng()
   return new Response(new Uint8Array(png), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300, s-maxage=3600' } })
 }
