@@ -12,6 +12,14 @@
   ],
   "rewrites": [
     {
+      "source": "/goal/:user/:id/image.png",
+      "destination": "/api/invoices?goalimg=:id&user=:user"
+    },
+    {
+      "source": "/goal/:user/:id",
+      "destination": "/api/invoices?goal=:id&user=:user"
+    },
+    {
       "source": "/g/:id/image.png",
       "destination": "/api/invoices?ogimg=:id"
     },
