@@ -137,7 +137,7 @@ export function renderReportEmail(opts: {
   const { run, state, market, locale } = opts
   const t = EMAIL_LABELS[locale]
   const date = new Intl.DateTimeFormat(INTL[locale], { dateStyle: 'long' }).format(new Date(run.at))
-  const invested = state.vaults.reduce((s, v) => s + v.userPosition, 0n)
+  const invested = state.vaults.reduce((s, v) => s + v.userPosition, state.positions.basket) // vaults + the AI Smart Money basket
   const total = state.spend + state.savings + invested
   const lead = run.report.split('\n').find((l) => l.trim()) ?? ''
   const appLink = opts.appUrl ? `${opts.appUrl.replace(/\/$/, '')}/app/agent` : null
