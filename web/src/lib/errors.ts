@@ -13,6 +13,11 @@ const CONTRACT_ERROR_KEYS: Record<number, MessageKey> = {
   12: 'errors.notAgent',
   13: 'errors.invalidPolicy',
   14: 'errors.splitOutOfRange',
+  15: 'errors.invalidTarget',
+  16: 'errors.tooManyRecipients',
+  17: 'errors.tooManyAgents',
+  18: 'errors.notFundMember',
+  19: 'errors.overBudget',
   1000: 'errors.paused',
 }
 
