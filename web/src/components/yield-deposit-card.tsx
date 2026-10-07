@@ -1,20 +1,21 @@
 import { useState } from 'react'
-import { ArrowDownIcon, LockIcon } from 'lucide-react'
+import { ArrowDownIcon } from 'lucide-react'
 import { TokenIcon } from '@/components/brand/token-icon'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { parseToken, tokenToInput } from '@/lib/format'
-import { formatDate, formatMoney, intlLocale, useT, type MessageKey } from '@/lib/i18n'
+import { formatMoney, intlLocale, useT, type MessageKey } from '@/lib/i18n'
 import type { FxRates } from '@/lib/rates'
 import { secondaryCurrencyFor, useSettings } from '@/lib/settings'
-import { YIELD_TARGETS, type CoinAIAccount, type YieldTarget } from '@/lib/types'
+import { POSITIONS, type CoinAIAccount, type Position } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { VAULT_LOGO, type Vaults } from '@/lib/yield'
+import { mainVault, VAULT_LOGO, type Vaults } from '@/lib/yield'
 
-const VAULT: Record<YieldTarget, { name: MessageKey; tab: MessageKey; route: MessageKey }> = {
+const VAULT: Record<Position, { name: MessageKey; tab: MessageKey; route: MessageKey }> = {
   conservative: { name: 'yield.sourceConservativeName', tab: 'yield.tabConservative', route: 'yield.sourceConservativeRoute' },
   balanced: { name: 'yield.sourceBalancedName', tab: 'yield.tabBalanced', route: 'yield.sourceBalancedRoute' },
   growth: { name: 'yield.sourceGrowthName', tab: 'yield.tabGrowth', route: 'yield.sourceGrowthRoute' },
+  basket: { name: 'yield.sourceBasketName', tab: 'yield.tabBasket', route: 'yield.sourceBasketRoute' },
 }
 
 // Parses what the user typed; null while empty or not a valid amount (no error while typing).
@@ -31,29 +32,29 @@ type YieldDepositCardProps = {
   account: CoinAIAccount
   vaults: Vaults | null
   rates: FxRates
-  onDeposit: (amount: bigint, target: YieldTarget) => Promise<boolean>
+  onDeposit: (amount: bigint, target: Position) => Promise<boolean>
   busy: boolean
 }
 
 // Same shape as the withdraw card: visual panel left, swap-style card right
-// (idle savings → the vault picked in the tabs).
+// (idle savings → the vault or basket picked in the tabs). Investing is allowed while savings are locked:
+// the money stays in savings.
 export function YieldDepositCard({ account, vaults, rates, onDeposit, busy }: YieldDepositCardProps) {
   const t = useT()
   const { locale, primaryCurrency } = useSettings()
-  const [target, setTarget] = useState<YieldTarget>(account.yieldTarget)
+  const [target, setTarget] = useState<Position>(mainVault(account) ?? 'balanced')
   const [value, setValue] = useState('')
 
-  const available = account.shares
-  const locked = Number(account.lockUntil) * 1000 > Date.now()
+  const available = account.idle
   const amount = tryParse(value)
   const tooMuch = amount !== null && amount > available
   const secondary = secondaryCurrencyFor(primaryCurrency, locale)
-  const vault = vaults?.[target] ?? null
-  const apy = vault?.apy ?? 0
+  const basket = target === 'basket'
+  const apy = basket ? 0 : (vaults?.[target].apy ?? 0)
   const pct = (x: number) => new Intl.NumberFormat(intlLocale(locale), { style: 'percent', maximumFractionDigits: 1 }).format(x)
   // Simple one-year estimate at the vault's (simulated) APY.
   const yearly = amount !== null ? (amount * BigInt(Math.round(apy * 10_000))) / 10_000n : 0n
-  const blocked = locked || vaults === null
+  const blocked = !basket && vaults === null
 
   const handleDeposit = async () => {
     if (amount === null || tooMuch) return
@@ -80,10 +81,10 @@ export function YieldDepositCard({ account, vaults, rates, onDeposit, busy }: Yi
 
       {/* Action card */}
       <div className="rounded-2xl border bg-card p-5 sm:p-6">
-        <Tabs value={target} onValueChange={(v) => setTarget(v as YieldTarget)} className="items-center">
-          <TabsList className="rounded-full">
-            {YIELD_TARGETS.map((key) => (
-              <TabsTrigger key={key} value={key} className="rounded-full px-4">
+        <Tabs value={target} onValueChange={(v) => setTarget(v as Position)} className="items-center">
+          <TabsList className="h-auto flex-wrap justify-center rounded-3xl">
+            {POSITIONS.map((key) => (
+              <TabsTrigger key={key} value={key} className="rounded-full px-3 sm:px-4">
                 {t(VAULT[key].tab)}
               </TabsTrigger>
             ))}
@@ -154,12 +155,16 @@ export function YieldDepositCard({ account, vaults, rates, onDeposit, busy }: Yi
               <p className="truncate text-xs text-muted-foreground">{t(VAULT[target].route)}</p>
             </div>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="font-semibold tabular-nums">{t('yield.apyValue', { apy: pct(apy) })}</p>
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {t('yield.estYearly', { amount: formatMoney(yearly, primaryCurrency, rates, locale) })}
-            </p>
-          </div>
+          {basket ? (
+            <p className="max-w-40 shrink-0 text-right text-xs text-muted-foreground">{t('yield.basketFollows')}</p>
+          ) : (
+            <div className="shrink-0 text-right">
+              <p className="font-semibold tabular-nums">{t('yield.apyValue', { apy: pct(apy) })}</p>
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {t('yield.estYearly', { amount: formatMoney(yearly, primaryCurrency, rates, locale) })}
+              </p>
+            </div>
+          )}
         </div>
 
         {tooMuch && <p className="mt-3 text-sm text-destructive">{t('errors.insufficientShares')}</p>}
@@ -174,13 +179,7 @@ export function YieldDepositCard({ account, vaults, rates, onDeposit, busy }: Yi
         </Button>
 
         <div className="mt-3 space-y-2">
-          {locked && (
-            <p className="flex items-center gap-2 text-xs font-medium text-accent-foreground">
-              <LockIcon className="size-4 shrink-0" />
-              {t('withdraw.lockedReason', { date: formatDate(account.lockUntil, locale) })}
-            </p>
-          )}
-          {vaults === null && <p className="text-xs text-destructive">{t('yield.targetUnavailable')}</p>}
+          {!basket && vaults === null && <p className="text-xs text-destructive">{t('yield.targetUnavailable')}</p>}
           <p className="text-xs text-muted-foreground">{t('yield.depositHint')}</p>
         </div>
       </div>
