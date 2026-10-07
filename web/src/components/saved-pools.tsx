@@ -1,13 +1,14 @@
-import { CheckIcon, Trash2Icon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CheckIcon, CopyPlusIcon, GlobeIcon, Trash2Icon, TrophyIcon } from 'lucide-react'
 import { CoinIcon } from '@/components/brand/coin-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import type { PoolStore } from '@/lib/agent-api'
+import { publicApi, type PoolStore } from '@/lib/agent-api'
 import { intlLocale, useT, type MessageKey } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
-import { backtest, POOL_ASSETS, vaultMix, type History, type SavedPool, type VaultMix } from '../../shared/pool.js'
+import { backtest, POOL_ASSETS, vaultMix, type History, type PublicPool, type SavedPool, type VaultMix } from '../../shared/pool.js'
 
 const MIX: { key: keyof VaultMix; label: MessageKey; className: string }[] = [
   { key: 'conservative', label: 'yield.sourceConservativeName', className: 'bg-muted-foreground/40' },
@@ -49,6 +50,7 @@ export function SavedPools({
   onLoad,
   onActivate,
   onDelete,
+  onTogglePublic,
 }: {
   store: PoolStore | null
   history: History | null
@@ -58,6 +60,7 @@ export function SavedPools({
   onLoad: (p: SavedPool) => void
   onActivate: (id: string | null) => void
   onDelete: (id: string) => void
+  onTogglePublic: (p: SavedPool) => void
 }) {
   const t = useT()
   const { locale } = useSettings()
@@ -131,6 +134,18 @@ export function SavedPools({
                         </>
                       )}
                     </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t(p.public ? 'pools.unshare' : 'pools.shareLeaderboard')}
+                      title={t(p.public ? 'pools.unshare' : 'pools.shareLeaderboard')}
+                      aria-pressed={!!p.public}
+                      disabled={busy}
+                      onClick={() => onTogglePublic(p)}
+                      className={cn(p.public && 'text-primary-ink')}
+                    >
+                      <GlobeIcon />
+                    </Button>
                     <Button size="icon-sm" variant="ghost" aria-label={t('pools.delete')} disabled={busy} onClick={() => onDelete(p.id)}>
                       <Trash2Icon />
                     </Button>
@@ -139,6 +154,75 @@ export function SavedPools({
               )
             })}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const WEEK_CLOSES = 8 // 7 daily returns
+
+/**
+ * C3: pools people shared, ranked by their backtest over the last week (same daily-rebalanced backtest as the
+ * builder, on the last 8 closes). Copying one saves it as your own pool, ready to make the agents' benchmark.
+ */
+export function CommunityPools({ history, me, busy, onCopy }: { history: History | null; me: string | null; busy: boolean; onCopy: (p: PublicPool) => void }) {
+  const t = useT()
+  const { locale } = useSettings()
+  const [pools, setPools] = useState<PublicPool[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    publicApi.publicPools().then(setPools, () => setFailed(true))
+  }, [])
+  const pct = (x: number) => `${x >= 0 ? '+' : ''}${new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: 1 }).format(x)}%`
+  const week = history ? (Object.fromEntries(Object.entries(history).map(([s, c]) => [s, c?.slice(-WEEK_CLOSES)])) as History) : null
+  const ranked = (pools ?? [])
+    .map((p) => ({ p, week: week ? backtest(p.weights, week).totalReturn : null, long: history ? backtest(p.weights, history) : null }))
+    .sort((a, b) => (b.week ?? -Infinity) - (a.week ?? -Infinity))
+
+  return (
+    <Card className="rounded-2xl shadow-none">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <TrophyIcon className="size-5 text-gold-ink" />
+          {t('pools.communityTitle')}
+        </CardTitle>
+        <CardDescription>{t('pools.communityCaption')}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {failed ? (
+          <p className="text-sm text-muted-foreground">{t('pools.communityFailed')}</p>
+        ) : pools === null ? (
+          <p className="text-sm text-muted-foreground">{t('common.loading')}…</p>
+        ) : ranked.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('pools.communityEmpty')}</p>
+        ) : (
+          <ol className="divide-y rounded-xl border">
+            {ranked.map(({ p, week: w, long }, i) => {
+              const mine = me !== null && p.owner === me.toLowerCase()
+              return (
+                <li key={`${p.owner}-${p.id}`} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                  <span className={cn('w-6 text-center font-semibold tabular-nums', i === 0 && 'text-gold-ink')}>{i + 1}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{p.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {mine ? t('pools.yours') : `${p.owner.slice(0, 6)}…${p.owner.slice(-4)}`}
+                      {long && ` · ${t('pools.longReturn', { days: long.days, ret: pct(long.totalReturn) })}`}
+                    </span>
+                  </span>
+                  <span className={cn('w-16 text-right font-semibold tabular-nums', w !== null && (w >= 0 ? 'text-primary-ink' : 'text-destructive'))}>
+                    {w === null ? '–' : pct(w)}
+                  </span>
+                  {!mine && (
+                    <Button size="sm" variant="outline" className="rounded-full" disabled={busy || me === null} onClick={() => onCopy(p)}>
+                      <CopyPlusIcon className="mr-1 size-3.5" />
+                      {t('pools.copy')}
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
         )}
       </CardContent>
     </Card>
