@@ -24,7 +24,9 @@
         "CAKE"
       ],
       "basketCurator": "0x03c8faF61c40F35CCFFd8fDcCa7F037C2dB2f6C6",
-      "verified": "sourcify (exact match)"
+      "verified": "sourcify (exact match)",
+      "depositRouter": "0x6840F8f0651BD5e892c5284f63C642496fF429d7",
+      "badges": "0x89781499Dd2a0A80De2a5a3C527ed869F9d544C3"
     }
   }
 }
