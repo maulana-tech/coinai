@@ -109,7 +109,7 @@ readUserState + profile ─┬─ Savings Strategist ─────┐
 | Area | Files |
 |---|---|
 | Chain + config | `lib/config.ts`, `lib/wagmi.ts` (BSC Testnet), `lib/ethers-wagmi.ts` (switch/add chain before signing) |
-| Contract service | `lib/coinai.ts` → `coinai.evm.ts` or `coinai.mock.ts` (mock when `VITE_COINAI_ADDRESS` is empty) |
+| Contract service | `lib/coinai.ts` → `coinai.evm.ts` or `coinai.mock.ts` (mock only with `VITE_MOCK=1`) |
 | Token | `lib/token.ts` (tUSDT, faucet), `lib/format.ts` |
 | Vault data | `lib/yield.ts`, `lib/use-yield-data.ts` — APY, risk, TVL, user position read from the vaults |
 | Activity | `lib/activity.ts` — event history, newest-first in 5k-block chunks from `VITE_DEPLOY_BLOCK` |
