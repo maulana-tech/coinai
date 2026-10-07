@@ -8,7 +8,9 @@ import {
   LandmarkIcon,
   TrendingUpIcon,
   ArrowUpRightIcon,
+  ArrowLeftRightIcon,
   ExternalLinkIcon,
+  HandCoinsIcon,
   LockIcon,
   ShieldCheckIcon,
   ShieldOffIcon,
@@ -18,15 +20,15 @@ import {
 import { AddressAvatar } from '@/components/brand/address-avatar'
 import { TokenIcon } from '@/components/brand/token-icon'
 import { Skeleton } from '@/components/ui/skeleton'
-import { YieldRouteBadge } from '@/components/yield-route-badge'
 import { type ActivityItem } from '@/lib/activity'
 import { useAppState } from '@/lib/app-state'
 import { explorerTxUrl } from '@/lib/config'
-import { formatDate, formatDateTime, formatMoney, useT, type MessageKey } from '@/lib/i18n'
+import { formatDate, formatDateTime, formatMoney, useT } from '@/lib/i18n'
 import { useSettings } from '@/lib/settings'
-import type { YieldTarget } from '@/lib/types'
+import { SKILL_SPLIT } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useWallet } from '@/lib/wallet'
+import { POSITION_NAME } from '@/lib/yield'
 
 const ICONS: Record<ActivityItem['kind'], typeof LockIcon> = {
   pay: ArrowDownLeftIcon,
@@ -40,6 +42,8 @@ const ICONS: Record<ActivityItem['kind'], typeof LockIcon> = {
   wd_save: ArrowUpRightIcon,
   wd_vault: ArrowUpRightIcon,
   invest: TrendingUpIcon,
+  move: ArrowLeftRightIcon,
+  contribute: HandCoinsIcon,
   split: SlidersHorizontalIcon,
   lock: LockIcon,
   agent: BotIcon,
@@ -60,6 +64,8 @@ const KIND_TINT: Record<ActivityItem['kind'], { bg: string; fg: string }> = {
   wd_save: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   wd_vault: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   invest: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
+  move: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
+  contribute: { bg: 'bg-primary/15', fg: 'text-primary-ink' },
   split: { bg: 'bg-accent', fg: 'text-accent-foreground' },
   lock: { bg: 'bg-accent', fg: 'text-accent-foreground' },
   agent: { bg: 'bg-gold/15', fg: 'text-gold-ink' },
@@ -79,15 +85,11 @@ const KIND_TINT_SOLID: Record<ActivityItem['kind'], { bg: string; fg: string }> 
   wd_save: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   wd_vault: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   invest: { bg: 'bg-primary', fg: 'text-primary-foreground' },
+  move: { bg: 'bg-primary', fg: 'text-primary-foreground' },
+  contribute: { bg: 'bg-primary', fg: 'text-primary-foreground' },
   split: { bg: 'bg-accent', fg: 'text-accent-foreground' },
   lock: { bg: 'bg-accent', fg: 'text-accent-foreground' },
   agent: { bg: 'bg-gold', fg: 'text-primary-foreground' },
-}
-
-const VAULT_NAME_KEY: Record<YieldTarget, MessageKey> = {
-  conservative: 'yield.sourceConservativeName',
-  balanced: 'yield.sourceBalancedName',
-  growth: 'yield.sourceGrowthName',
 }
 
 type ActivityListProps = {
@@ -95,7 +97,7 @@ type ActivityListProps = {
   loading: boolean
 }
 
-const TOKEN_KINDS: readonly ActivityItem['kind'][] = ['pay', 'paid', 'faucet', 'wd_spend', 'wd_save', 'wd_vault', 'invest']
+const TOKEN_KINDS: readonly ActivityItem['kind'][] = ['pay', 'paid', 'faucet', 'wd_spend', 'wd_save', 'wd_vault', 'invest', 'move', 'contribute']
 
 const short = (a: string | undefined) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '')
 
@@ -117,7 +119,7 @@ function RowLink({ item, className, children }: { item: ActivityItem; className:
 }
 
 export function ActivityList({ items, loading }: ActivityListProps) {
-  const { account, rates } = useAppState()
+  const { rates } = useAppState()
   const { locale, primaryCurrency } = useSettings()
   const { address } = useWallet()
   const t = useT()
@@ -125,8 +127,8 @@ export function ActivityList({ items, loading }: ActivityListProps) {
   const money = (amount: bigint | undefined): string =>
     formatMoney(amount ?? 0n, primaryCurrency, rates, locale)
 
-  const vaultName = (item: ActivityItem): string =>
-    t(VAULT_NAME_KEY[item.target ?? 'balanced'])
+  const vaultName = (item: ActivityItem): string => t(POSITION_NAME[item.target ?? 'balanced'])
+  const fromName = (item: ActivityItem): string => t(POSITION_NAME[item.fromTarget ?? 'balanced'])
 
   const pct = (bps: number | undefined) => (bps ?? 0) / 100
 
@@ -161,10 +163,18 @@ export function ActivityList({ items, loading }: ActivityListProps) {
         return { title: t('activity.target', { vault: vaultName(item) }) }
       case 'invest':
         return { title: t('activity.invest', { amount: money(item.amount), vault: vaultName(item) }) }
+      case 'move':
+        return { title: t('activity.move', { amount: money(item.amount), from: fromName(item), vault: vaultName(item) }) }
+      case 'contribute':
+        return { title: t('activity.contribute', { amount: money(item.amount), id: String(item.fundId ?? '') }) }
       case 'agent_on':
         return {
           title: t('activity.agentOn'),
-          detail: t('activity.agentOnDetail', { min: pct(item.minBps), max: pct(item.maxBps), date: formatDate(item.until ?? 0n, locale) }),
+          detail: t(item.skills !== undefined && (item.skills & SKILL_SPLIT) === 0 ? 'activity.agentOnDetailNoSplit' : 'activity.agentOnDetail', {
+            min: pct(item.minBps),
+            max: pct(item.maxBps),
+            date: formatDate(item.until ?? 0n, locale),
+          }),
         }
       case 'agent_off':
         return { title: t('activity.agentOff') }
@@ -173,7 +183,11 @@ export function ActivityList({ items, loading }: ActivityListProps) {
           title:
             item.agentAction === 'split'
               ? t('activity.agentSplit', { pct: pct(item.bps) })
-              : t('activity.agentInvest', { amount: money(item.amount), vault: vaultName(item) }),
+              : item.agentAction === 'rebalance'
+                ? t('activity.agentRebalance', { amount: money(item.amount), from: fromName(item), vault: vaultName(item) })
+                : item.agentAction === 'contribute'
+                  ? t('activity.agentContribute', { amount: money(item.amount), id: String(item.fundId ?? '') })
+                  : t('activity.agentInvest', { amount: money(item.amount), vault: vaultName(item) }),
           detail: item.reason,
         }
       case 'run':
@@ -201,11 +215,8 @@ export function ActivityList({ items, loading }: ActivityListProps) {
     return <p className="text-sm text-muted-foreground">{t('activity.empty')}</p>
   }
 
-  const showRoute = account !== null && items.some((item) => item.kind === 'pay' || item.kind === 'wd_save')
-
   return (
     <div className="space-y-3">
-      {showRoute && <YieldRouteBadge target={account.yieldTarget} />}
       <ul className="-mx-2 space-y-1">
         {items.map((item) => {
           const Icon = ICONS[item.kind]
