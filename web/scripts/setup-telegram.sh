@@ -16,7 +16,12 @@ curl -fsS "$API/setWebhook" -H 'Content-Type: application/json' -d "{
 }"; echo
 
 curl -fsS "$API/setMyCommands" -H 'Content-Type: application/json' -d '{"commands": [
-  {"command": "portfolio", "description": "Savings, vault positions and the AI strategy"},
+  {"command": "portfolio", "description": "Savings, positions (vaults + basket) and the AI strategy"},
+  {"command": "agent", "description": "What your agents may do: skills, limits, Hermes"},
+  {"command": "groups", "description": "Your groups: dues due, chip-ins, fundraisers"},
+  {"command": "goals", "description": "Your savings goals and progress"},
+  {"command": "badges", "description": "Your badges and saving streak"},
+  {"command": "points", "description": "Referral points and your payment link"},
   {"command": "pools", "description": "Your saved pools (AI benchmark)"},
   {"command": "use", "description": "Make a pool the AI benchmark: /use <name> or /use off"},
   {"command": "deposit", "description": "How to add tUSDT or tBNB"},
@@ -28,6 +33,6 @@ curl -fsS "$API/setMyCommands" -H 'Content-Type: application/json' -d '{"command
   {"command": "help", "description": "What I can do"}
 ]}'; echo
 
-curl -fsS "$API/setMyDescription" -H 'Content-Type: application/json' -d '{"description": "coinAI: an AI agent team that saves and invests a slice of every payment on BNB Chain. Chat with it, check your portfolio, switch your saved strategy, get daily reports, and read the market."}'; echo
+curl -fsS "$API/setMyDescription" -H 'Content-Type: application/json' -d '{"description": "coinAI: an AI agent team that saves and invests a slice of every payment on BNB Chain. Chat with it, check your portfolio, groups, goals and badges, switch your saved strategy, get daily reports and alerts, and read the market."}'; echo
 
 curl -fsS "$API/getWebhookInfo"; echo
