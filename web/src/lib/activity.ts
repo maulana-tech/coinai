@@ -1,7 +1,7 @@
 import { Contract, EventLog, JsonRpcProvider, ZeroHash, zeroPadValue } from 'ethers'
 import { agentApi, hasAgentSession } from '@/lib/agent-api'
-import { CONTRACT_ID, DEPLOY_BLOCK, DEPOSIT_ROUTER_ADDRESS, logsProvider, TOKEN_ADDRESS } from '@/lib/config'
-import { YIELD_TARGETS, type YieldTarget } from '@/lib/types'
+import { CONTRACT_ID, DEPLOY_BLOCK, DEPOSIT_ROUTERS, LEGACY_COINAI_ADDRESS, logsProvider, TOKEN_ADDRESS } from '@/lib/config'
+import { POSITIONS, YIELD_TARGETS, type Position, type YieldTarget } from '@/lib/types'
 
 export type ActivityItem = {
   id: string
@@ -13,6 +13,8 @@ export type ActivityItem = {
     | 'wd_save'
     | 'wd_vault'
     | 'invest'
+    | 'move'
+    | 'contribute'
     | 'split'
     | 'lock'
     | 'target'
@@ -31,7 +33,10 @@ export type ActivityItem = {
   shares?: bigint
   bps?: number
   until?: bigint
-  target?: YieldTarget
+  target?: Position
+  fromTarget?: Position // move rows
+  fundId?: bigint // contribute rows: the GroupFunds fund
+  skills?: number // agent_on rows (v2): SKILL_* bits
   minBps?: number
   maxBps?: number
   // run rows: an agent team run from the backend, including runs that changed nothing on-chain
@@ -39,12 +44,18 @@ export type ActivityItem = {
   executed?: number
   rejected?: number
   summary?: string
-  // agent rows: what the AI did and why (merged from the sibling SplitSet/SavingsInvested log)
-  agentAction?: 'split' | 'invest'
+  // agent rows: what the AI did and why (merged from the sibling SplitSet/SavingsInvested/PositionMoved/FundContributed log)
+  agentAction?: 'split' | 'invest' | 'rebalance' | 'contribute'
   reason?: string
 }
 
-const SAVE_EVM_ABI = [
+// Events of coinAI v2 and v1 (both are read, so history from before the move still shows). Shared events keep
+// the same layout in both; AgentSet/AgentRevoked changed, so both versions are listed.
+const AGENT_SET_V1 = 'AgentSet(address,address,uint16,uint16,uint64)'
+const AGENT_SET_V2 = 'AgentSet(address,address,uint8,uint16,uint16,uint128,uint64)'
+const AGENT_REVOKED_V1 = 'AgentRevoked(address)'
+const AGENT_REVOKED_V2 = 'AgentRevoked(address,address)'
+const COINAI_EVENTS_ABI = [
   'event PaymentRouted(address indexed from,address indexed to,uint256 amount,uint256 spendAmount,uint256 savingsAmount,uint8 yieldTarget)',
   'event SpendWithdrawn(address indexed user,uint256 amount)',
   'event SavingsWithdrawn(address indexed user,uint256 shares,uint256 amountOut)',
@@ -52,15 +63,23 @@ const SAVE_EVM_ABI = [
   'event LockSet(address indexed user,uint64 until)',
   'event SavingsInvested(address indexed user,uint8 target,address vault,uint256 amount,uint256 vaultShares)',
   'event AgentAction(address indexed user,address indexed agent,uint8 action,string reason)',
-  'event YieldTargetSet(address indexed user,uint8 target)',
-  'event AgentSet(address indexed user,address indexed agent,uint16 minSplitBps,uint16 maxSplitBps,uint64 expiry)',
-  'event AgentRevoked(address indexed user)',
+  'event YieldTargetSet(address indexed user,uint8 target)', // v1
+  'event AgentSet(address indexed user,address indexed agent,uint16 minSplitBps,uint16 maxSplitBps,uint64 expiry)', // v1
+  'event AgentRevoked(address indexed user)', // v1
+  'event AgentSet(address indexed user,address indexed agent,uint8 skills,uint16 minSplitBps,uint16 maxSplitBps,uint128 payBudget,uint64 expiry)',
+  'event AgentRevoked(address indexed user,address indexed agent)',
+  'event PositionWithdrawn(address indexed user,uint8 indexed target,uint256 amount)',
+  'event PositionMoved(address indexed user,uint8 from,uint8 to,uint256 amount)',
+  'event FundContributed(address indexed user,uint256 indexed fundId,uint256 amount)',
   // tUSDT faucet mints (Transfer from the zero address), read from the token contract
   'event Transfer(address indexed from,address indexed to,uint256 value)',
-  // the user taking a position out of one of the three vaults (SimpleVault, ERC-4626)
+  // v1: the user taking a position out of one of the three vaults (SimpleVault, ERC-4626, shares in their wallet)
   'event Withdraw(address indexed caller,address indexed receiver,address indexed owner,uint256 assets,uint256 shares)',
   'function vaultOf(uint8 target) view returns (address)',
 ] as const
+
+// AgentAction.action in CoinAIV2 (v1 only had SetSplit and Invest)
+const AGENT_ACTIONS = ['split', 'invest', 'rebalance', 'contribute'] as const
 
 // Public BSC RPCs cap eth_getLogs ranges (publicnode: 50k blocks), so history is read newest-first
 // in chunks, a few at a time to stay under rate limits.
@@ -80,8 +99,11 @@ async function getBlockTimestamp(provider: JsonRpcProvider, blockNumber: number)
   return ts
 }
 
+const position = (index: unknown): Position | undefined => POSITIONS[Number(index)]
+
 function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTarget>): ActivityItem[] {
   const userLc = user.toLowerCase()
+  const routers = DEPOSIT_ROUTERS.map((a) => a.toLowerCase())
   const out: ActivityItem[] = []
   const seen = new Set<string>()
   for (const log of logs) {
@@ -98,8 +120,7 @@ function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTar
       const from = String(log.args.from)
       const to = String(log.args.to)
       if (to.toLowerCase() === userLc) {
-        const via =
-          from.toLowerCase() === userLc ? 'wallet' : from.toLowerCase() === DEPOSIT_ROUTER_ADDRESS.toLowerCase() ? 'bnb' : undefined
+        const via = from.toLowerCase() === userLc ? 'wallet' : routers.includes(from.toLowerCase()) ? 'bnb' : undefined
         out.push({ ...base, kind: 'pay', from, via, amount: BigInt(log.args.amount), saved: BigInt(log.args.savingsAmount) })
       } else if (from.toLowerCase() === userLc) {
         out.push({ ...base, kind: 'paid', to, amount: BigInt(log.args.amount) })
@@ -107,11 +128,13 @@ function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTar
     } else if (name === 'Transfer') {
       out.push({ ...base, kind: 'faucet', amount: BigInt(log.args.value) })
     } else if (name === 'YieldTargetSet') {
-      out.push({ ...base, kind: 'target', target: YIELD_TARGETS[Number(log.args.target)] })
+      out.push({ ...base, kind: 'target', target: position(log.args.target) })
     } else if (name === 'AgentSet') {
+      const v2 = log.fragment.inputs.length === 7
       out.push({
         ...base,
         kind: 'agent_on',
+        skills: v2 ? Number(log.args.skills) : undefined,
         minBps: Number(log.args.minSplitBps),
         maxBps: Number(log.args.maxSplitBps),
         until: BigInt(log.args.expiry),
@@ -129,6 +152,18 @@ function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTar
       })
     } else if (name === 'Withdraw') {
       out.push({ ...base, kind: 'wd_vault', amount: BigInt(log.args.assets), target: vaults.get(log.address.toLowerCase()) })
+    } else if (name === 'PositionWithdrawn') {
+      out.push({ ...base, kind: 'wd_vault', amount: BigInt(log.args.amount), target: position(log.args.target) })
+    } else if (name === 'PositionMoved') {
+      out.push({
+        ...base,
+        kind: 'move',
+        amount: BigInt(log.args.amount),
+        fromTarget: position(log.args.from),
+        target: position(log.args.to),
+      })
+    } else if (name === 'FundContributed') {
+      out.push({ ...base, kind: 'contribute', amount: BigInt(log.args.amount), fundId: BigInt(log.args.fundId) })
     } else if (name === 'SplitSet') {
       out.push({ ...base, kind: 'split', bps: Number(log.args.bps) })
     } else if (name === 'LockSet') {
@@ -138,13 +173,13 @@ function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTar
         ...base,
         kind: 'invest',
         amount: BigInt(log.args.amount),
-        target: YIELD_TARGETS[Number(log.args.target)],
+        target: position(log.args.target),
       })
     } else if (name === 'AgentAction') {
       out.push({
         ...base,
         kind: 'agent',
-        agentAction: Number(log.args.action) === 0 ? 'split' : 'invest',
+        agentAction: AGENT_ACTIONS[Number(log.args.action)] ?? 'invest',
         reason: String(log.args.reason),
       })
     }
@@ -152,7 +187,7 @@ function decodeLogs(logs: EventLog[], user: string, vaults: Map<string, YieldTar
   return mergeAgentActions(out)
 }
 
-// An agent tx emits SplitSet/SavingsInvested plus AgentAction; show one row with the reason.
+// An agent tx emits SplitSet/SavingsInvested/PositionMoved/FundContributed plus AgentAction; show one row with the reason.
 function mergeAgentActions(items: ActivityItem[]): ActivityItem[] {
   const agentTx = new Map(items.filter((i) => i.kind === 'agent').map((i) => [i.txHash, i]))
   return items.filter((item) => {
@@ -160,6 +195,8 @@ function mergeAgentActions(items: ActivityItem[]): ActivityItem[] {
     if (!agent || item === agent) return true
     if (item.kind === 'split') agent.bps = item.bps
     else if (item.kind === 'invest') Object.assign(agent, { amount: item.amount, target: item.target })
+    else if (item.kind === 'move') Object.assign(agent, { amount: item.amount, target: item.target, fromTarget: item.fromTarget })
+    else if (item.kind === 'contribute') Object.assign(agent, { amount: item.amount, fundId: item.fundId })
     else return true
     return false
   })
@@ -168,8 +205,10 @@ function mergeAgentActions(items: ActivityItem[]): ActivityItem[] {
 async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
   if (CONTRACT_ID === '') return []
   const provider = logsProvider
-  const c = new Contract(CONTRACT_ID, SAVE_EVM_ABI, provider)
+  const contracts = [CONTRACT_ID, LEGACY_COINAI_ADDRESS].filter(Boolean)
+  const c = new Contract(CONTRACT_ID, COINAI_EVENTS_ABI, provider)
 
+  // v1 vaults (the same three back v2) emit Withdraw with the user as owner only for v1 positions
   const [latest, vaultAddresses] = await Promise.all([
     provider.getBlockNumber(),
     Promise.all(YIELD_TARGETS.map((_, i) => c.vaultOf(i) as Promise<string>)),
@@ -190,12 +229,17 @@ async function fetchEvmActivity(user: string): Promise<ActivityItem[]> {
     'SavingsInvested',
     'AgentAction',
     'YieldTargetSet',
-    'AgentSet',
-    'AgentRevoked',
+    AGENT_SET_V1,
+    AGENT_SET_V2,
+    AGENT_REVOKED_V1,
+    AGENT_REVOKED_V2,
+    'PositionWithdrawn',
+    'PositionMoved',
+    'FundContributed',
   ].map(topic)
   const queries = (fromBlock: number, toBlock: number) => [
-    provider.getLogs({ address: CONTRACT_ID, fromBlock, toBlock, topics: [topic('PaymentRouted'), null, userTopic] }),
-    provider.getLogs({ address: CONTRACT_ID, fromBlock, toBlock, topics: [own, userTopic] }),
+    provider.getLogs({ address: contracts, fromBlock, toBlock, topics: [topic('PaymentRouted'), null, userTopic] }),
+    provider.getLogs({ address: contracts, fromBlock, toBlock, topics: [own, userTopic] }),
     provider.getLogs({ address: TOKEN_ADDRESS, fromBlock, toBlock, topics: [topic('Transfer'), ZeroHash, userTopic] }),
     provider.getLogs({ address: vaultAddresses, fromBlock, toBlock, topics: [topic('Withdraw'), null, null, userTopic] }),
   ]
