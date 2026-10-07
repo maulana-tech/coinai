@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getVaults, type Vaults } from '@/lib/yield'
 
-export function useYieldData(user: string | null = null) {
+export function useYieldData() {
   const [vaults, setVaults] = useState<Vaults | null>(null)
   const [loading, setLoading] = useState(true)
   const runId = useRef(0)
@@ -9,11 +9,11 @@ export function useYieldData(user: string | null = null) {
   const load = useCallback(async () => {
     const id = ++runId.current
     setLoading(true)
-    const next = await getVaults(user).catch(() => null)
+    const next = await getVaults().catch(() => null)
     if (runId.current !== id) return
     setVaults(next)
     setLoading(false)
-  }, [user])
+  }, [])
 
   useEffect(() => {
     void load()
