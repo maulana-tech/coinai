@@ -12,6 +12,10 @@
   ],
   "rewrites": [
     {
+      "source": "/g/:id/image.png",
+      "destination": "/api/invoices?ogimg=:id"
+    },
+    {
       "source": "/g/:id",
       "destination": "/api/invoices?og=:id"
     },
