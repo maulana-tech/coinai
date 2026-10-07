@@ -69,6 +69,8 @@ const provider = () => rpcProvider(process.env.BSC_RPC_URL || CALL_RPC)
 export const chainProvider = provider
 export const coinaiAddress = () => process.env.COINAI_ADDRESS || process.env.VITE_COINAI_ADDRESS || DEPLOYMENT.v2.coinai
 export const agentWallet = () => new Wallet(env('AGENT_PRIVATE_KEY'), provider())
+/** The agent wallet's address; reads don't need its key (the public address is in the deployment). */
+export const agentAddress = () => (process.env.AGENT_PRIVATE_KEY ? agentWallet().address : DEPLOYMENT.v2.agent)
 export const explorerTx = (hash: string) => `https://testnet.bscscan.com/tx/${hash}`
 
 /** How many coinAI payments a wallet has received (v2), e.g. to tell a newcomer from a user. */
@@ -107,11 +109,11 @@ export async function readUserState(userInput: string): Promise<UserState> {
   const user = getAddress(userInput)
   const p = provider()
   const c = new Contract(coinaiAddress(), COINAI_ABI, p)
-  const agentAddress = agentWallet().address
+  const agent = agentAddress()
   const [acc, stats, policy, block, vaultAddrs] = await Promise.all([
     c.accountOf(user),
     c.statsOf(user),
-    c.policyOf(user, agentAddress),
+    c.policyOf(user, agent),
     p.getBlock('latest'),
     Promise.all(TARGETS.map((_, i) => c.vaultOf(i) as Promise<string>)),
   ])
@@ -128,7 +130,7 @@ export async function readUserState(userInput: string): Promise<UserState> {
   return {
     user,
     now: block?.timestamp ?? Math.floor(Date.now() / 1000),
-    agentAddress,
+    agentAddress: agent,
     splitBps: Number(acc.splitBps),
     spend: BigInt(acc.spend),
     savings: BigInt(acc.idle),
@@ -138,7 +140,7 @@ export async function readUserState(userInput: string): Promise<UserState> {
     paymentCount: Number(stats.paymentCount),
     lastPaymentAt: Number(stats.lastPaymentAt),
     policy: {
-      agent: Number(policy.skills) ? agentAddress : ZeroAddress, // policyOf is keyed by the agent: it's ours or none
+      agent: Number(policy.skills) ? agent : ZeroAddress, // policyOf is keyed by the agent: it's ours or none
       skills: Number(policy.skills),
       minSplitBps: Number(policy.minSplitBps),
       maxSplitBps: Number(policy.maxSplitBps),
