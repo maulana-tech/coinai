@@ -242,7 +242,7 @@ export const agentApi = {
 }
 
 /** Mirrors `Goal` in api/_lib/rewards.ts: a named pocket holding `share`% of all savings. */
-export type Goal = { id: string; name: string; target: number; deadline: number; share: number; createdAt: number }
+export type Goal = { id: string; name: string; target: number; deadline: number; share: number; createdAt: number; public?: boolean }
 
 /** Points, referrals and the weekly saving streak (api/_lib/rewards.ts). */
 export type Rewards = { points: number; referrals: number; referredBy: string | null; streakWeeks: number; bestStreak: number }

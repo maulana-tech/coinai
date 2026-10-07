@@ -8,7 +8,7 @@ import { chainProvider } from './chain.js'
 
 const KINDS = ['patungan', 'iuran', 'donasi'] as const
 type Kind = (typeof KINDS)[number]
-const IMAGE: Record<Kind, string> = { patungan: '/landing/agents.jpg', iuran: '/landing/save.jpg', donasi: '/landing/hero.jpg' }
+export const IMAGE: Record<Kind, string> = { patungan: '/landing/agents.jpg', iuran: '/landing/save.jpg', donasi: '/landing/hero.jpg' }
 const ABI = [
   'function fund(uint256 id) view returns ((address organizer,address beneficiary,uint8 kind,bool cancelled,uint64 start,uint64 deadline,uint64 period,uint128 target,uint128 dues,uint128 raised,uint128 withdrawn,uint32 contributors,uint32 members,string title))',
 ]
@@ -46,8 +46,8 @@ export async function readOgFund(id: number): Promise<OgFund> {
 export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
-const usdt = (x: bigint) => `${Number(formatUnits(x, 6)).toLocaleString('id-ID', { maximumFractionDigits: 2 })} tUSDT`
-const day = (unix: number) => new Date(unix * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' })
+export const usdt = (x: bigint) => `${Number(formatUnits(x, 6)).toLocaleString('id-ID', { maximumFractionDigits: 2 })} tUSDT`
+export const day = (unix: number) => new Date(unix * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Jakarta' })
 
 /** One line for the preview, in Indonesian (the app's main audience). */
 export function ogDescription(f: OgFund): string {
@@ -61,11 +61,42 @@ export function ogDescription(f: OgFund): string {
 
 /** The page link-preview bots read; browsers go on to the app's group page. */
 export function ogPage(f: OgFund | null, id: number, origin: string): string {
-  const target = `/groups/${id}`
-  const title = f ? `${f.title} · coinAI` : 'coinAI · Dana grup'
-  const description = f ? ogDescription(f) : 'Patungan, iuran, dan donasi bareng di coinAI. Setiap setoran tercatat on-chain.'
-  const image = `${origin}${IMAGE[f?.kind ?? 'patungan']}`
-  const url = `${origin}/g/${id}`
+  return previewPage({
+    title: f ? `${f.title} · coinAI` : 'coinAI · Dana grup',
+    description: f ? ogDescription(f) : 'Patungan, iuran, dan donasi bareng di coinAI. Setiap setoran tercatat on-chain.',
+    // the card drawn from the chain (og-image.ts); the query changes with the numbers so chat apps refetch it
+    image: f ? `${origin}/g/${id}/image.png?v=${f.raised}-${f.contributors}-${f.members}-${Number(f.cancelled)}` : `${origin}${IMAGE.patungan}`,
+    card: !!f,
+    url: `${origin}/g/${id}`,
+    target: `/groups/${id}`,
+  })
+}
+
+export type OgGoal = { name: string; target: number; deadline: number; saved: number }
+const tusdt = (x: number) => `${x.toLocaleString('id-ID', { maximumFractionDigits: 2 })} tUSDT`
+
+export function ogGoalDescription(g: OgGoal, now = Date.now() / 1000): string {
+  const pct = Math.min(100, Math.floor((g.saved / g.target) * 100))
+  const left = g.deadline ? Math.ceil((g.deadline - now) / 86_400) : null
+  const when = left === null ? '' : left > 0 ? ` · ${left} hari lagi` : ' · lewat tenggat'
+  return `Menabung untuk ${g.name}: ${tusdt(g.saved)} dari ${tusdt(g.target)} (${pct}%)${when}. Setiap pembayaran lewat coinAI otomatis menyisihkan sebagian ke tabungan ini.`
+}
+
+/** A shared savings goal: the preview shows its live progress, and people land on the owner's payment link. */
+export function ogGoalPage(g: OgGoal | null, user: string, id: string, origin: string): string {
+  const path = `/goal/${user}/${encodeURIComponent(id)}`
+  return previewPage({
+    title: g ? `${g.name} · coinAI` : 'coinAI · Target tabungan',
+    description: g ? ogGoalDescription(g) : 'Tabungan otomatis dari setiap pembayaran, dikelola tim agen AI di BNB Chain.',
+    image: g ? `${origin}${path}/image.png?v=${Math.round(g.saved * 100)}-${g.target}` : `${origin}/landing/save.jpg`,
+    card: !!g,
+    url: `${origin}${path}`,
+    target: `/pay/${user}`,
+  })
+}
+
+function previewPage(p: { title: string; description: string; image: string; card: boolean; url: string; target: string }): string {
+  const { title, description, image, url, target } = p
   const e = escapeHtml
   return `<!doctype html>
 <html lang="id">
@@ -79,7 +110,7 @@ export function ogPage(f: OgFund | null, id: number, origin: string): string {
 <meta property="og:title" content="${e(title)}" />
 <meta property="og:description" content="${e(description)}" />
 <meta property="og:image" content="${e(image)}" />
-<meta property="og:url" content="${e(url)}" />
+${p.card ? '<meta property="og:image:width" content="1200" />\n<meta property="og:image:height" content="630" />\n' : ''}<meta property="og:url" content="${e(url)}" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${e(title)}" />
 <meta name="twitter:description" content="${e(description)}" />
@@ -89,7 +120,7 @@ export function ogPage(f: OgFund | null, id: number, origin: string): string {
 </head>
 <body>
 <script>location.replace(${JSON.stringify(target)})</script>
-<a href="${e(target)}">${e(f?.title ?? 'coinAI')}</a>
+<a href="${e(target)}">${e(title)}</a>
 </body>
 </html>`
 }

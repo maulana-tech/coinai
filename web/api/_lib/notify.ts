@@ -24,6 +24,16 @@ export function sendTelegram(chatId: number, text: string) {
   return telegram('sendMessage', { chat_id: chatId, text: text.slice(0, TELEGRAM_MAX), disable_web_page_preview: true })
 }
 
+/** A Telegram message to a wallet, if it linked a chat; resolves to whether it was sent. Never throws. */
+export async function notifyUser(user: string, text: (locale: Locale) => string): Promise<boolean> {
+  const sub = await getSub(user).catch(() => null)
+  if (!sub?.telegramChatId) return false
+  return sendTelegram(sub.telegramChatId, text(sub.locale)).then(
+    () => true,
+    () => false,
+  )
+}
+
 /** Shows "typing…" in the chat for ~5s while the agents think. */
 export function sendTyping(chatId: number) {
   return telegram('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {})

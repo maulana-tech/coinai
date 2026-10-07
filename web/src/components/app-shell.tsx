@@ -132,7 +132,9 @@ function SidebarContent({ rail = false, onNavigate, onToggle }: SidebarContentPr
     cn(ITEM, isActive ? ITEM_ACTIVE : ITEM_IDLE)
 
   return (
-    <div className="flex h-full flex-col p-4">
+    // one scroll for the whole sidebar: on short screens the nav sections stay reachable (More scrolls instead of
+    // squeezing them); on tall ones mt-auto still pins More to the bottom
+    <div className="no-scrollbar flex h-full flex-col overflow-x-hidden overflow-y-auto p-4">
       <div className={cn("flex items-center pt-1 pb-2", rail ? "justify-center" : "justify-between px-[9px]")}>
         <div className={cn("flex items-center gap-2", rail && "hidden")}>
           <LogoMark size={22} />
@@ -144,7 +146,7 @@ function SidebarContent({ rail = false, onNavigate, onToggle }: SidebarContentPr
           </Button>
         )}
       </div>
-      <nav className="no-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <nav className="shrink-0">
         {NAV_SECTIONS.map((section) => (
           <div key={section.label}>
             <SectionLabel rail={rail}>{t(section.label)}</SectionLabel>
@@ -157,7 +159,7 @@ function SidebarContent({ rail = false, onNavigate, onToggle }: SidebarContentPr
           </div>
         ))}
       </nav>
-      <div className="mt-2 flex flex-col pt-2 border-t">
+      <div className="mt-auto flex shrink-0 flex-col border-t pt-2">
         <SectionLabel rail={rail}>{t('nav.sectionMore')}</SectionLabel>
         {MORE_ITEMS.map(({ to, label: itemLabel, icon: Icon }) => (
           <NavLink key={to} to={to} onClick={onNavigate} className={navClass}>

@@ -4,7 +4,8 @@ import { policyActive } from '../_lib/guard.js'
 import { json } from '../_lib/http.js'
 import { kv } from '../_lib/kv.js'
 import { awardBadges, getGoals, getStreak, goalProgress, setStreak, streakStep } from '../_lib/rewards.js'
-import { deliver, getSub } from '../_lib/notify.js'
+import { badgeText, goalReachedText, organizerLines, plutusLine } from '../_lib/bot.js'
+import { deliver, getSub, notifyUser } from '../_lib/notify.js'
 import { renderReportEmail } from '../_lib/email.js'
 import { renderReportPdf } from '../_lib/report-pdf.js'
 import { getMarket, getMarketAnalysis, runSwarm, saveSnapshot, type RunResult } from '../_lib/swarm.js'
@@ -13,7 +14,9 @@ import { POSITIONS } from '../_lib/guard.js'
 // Vercel Cron (see vercel.json). Vercel sends Authorization: Bearer $CRON_SECRET.
 // Once: Plutus sets the AI Smart Money basket weights from today's market read.
 // For each enrolled user: run the agent team (report-only if the agent isn't enabled), let Hermes pay due group
-// dues, deliver the report + Poseidon's group reminders to their channels, then snapshot for tomorrow's deltas.
+// dues, deliver the report + Poseidon's group reminders (and, for organizers, what came into their groups; for basket
+// holders, Plutus's new weights) to their channels, then snapshot for tomorrow's deltas.
+// Every saver: weekly streak, awarded badges and reached goals, each announced on Telegram as it happens.
 // ponytail: serial loop, fine for a demo-sized user list; fan out via a queue past ~20 users.
 export async function GET(req: Request) {
   if (req.headers.get('authorization') !== `Bearer ${env('CRON_SECRET')}`) return json({ error: 'forbidden' }, 403)
@@ -23,6 +26,8 @@ export async function GET(req: Request) {
     .then(plutusSetWeights)
     .catch((e) => ({ error: (e as Error).message }))
   const funds = await readFunds().catch(() => [])
+  // what each group had raised at the last run, for the organizers' "since yesterday" lines
+  const fundsBefore = (await kv.get<Record<number, string>>('fundsnap').catch(() => null)) ?? {}
   const users = await kv.smembers('users')
   const rewards = await trackRewards([...new Set([...users, ...(await kv.smembers('savers').catch(() => []))])])
   const results: { user: string; executed: number; duesPaid: number; delivered: boolean; errors: string[] }[] = []
@@ -45,7 +50,12 @@ export async function GET(req: Request) {
       duesPaid = paid.filter((p) => p.txHash).length
       errors.push(...paid.flatMap((p) => (p.error ? [`hermes ${p.fundId}: ${p.error}`] : [])))
       if (duesPaid) state = await readUserState(user)
-      const groupLines = groupReminders(stakes, paid, state.now, sub?.locale ?? 'en')
+      const locale = sub?.locale ?? 'en'
+      const groupLines = [
+        ...groupReminders(stakes, paid, state.now, locale),
+        ...organizerLines(funds, user, fundsBefore, locale),
+        ...(plutus && 'weights' in plutus && state.positions.basket > 0n ? [plutusLine(plutus.weights, plutus.symbols, plutus.reason, locale)] : []),
+      ]
       if (sub && (sub.email || sub.telegramChatId)) {
         const appUrl = process.env.APP_URL
         const market = await getMarket().catch(() => null)
@@ -62,6 +72,7 @@ export async function GET(req: Request) {
     }
     results.push({ user, executed, duesPaid, delivered, errors })
   }
+  if (funds.length) await kv.set('fundsnap', Object.fromEntries(funds.map((f) => [f.id, f.raised.toString()]))).catch(() => {})
   return json({ users: users.length, drip, plutus, rewards, results })
 }
 
@@ -74,9 +85,12 @@ async function trackRewards(wallets: string[]) {
       const streak = streakStep(await getStreak(user), s.paymentCount, s.now)
       await setStreak(user, streak)
       const saved = Number(POSITIONS.reduce((sum, p) => sum + s.positions[p], s.savings)) / 1e6
-      const goal = (await getGoals(user)).some((g) => goalProgress(g, saved, s.now).reached)
+      const reached = (await getGoals(user)).filter((g) => goalProgress(g, saved, s.now).reached)
+      for (const g of reached)
+        if (await kv.setnx(`goaldone:${user.toLowerCase()}:${g.id}`, s.now)) await notifyUser(user, (l) => goalReachedText(g, l))
       const runs = await kv.list<RunResult>(`runs:${user}`, 20).catch(() => [])
-      const minted = await awardBadges(user, { streak: streak.weeks >= 4, goal, agentRun: runs.some((r) => r.executed.length > 0) })
+      const minted = await awardBadges(user, { streak: streak.weeks >= 4, goal: reached.length > 0, agentRun: runs.some((r) => r.executed.length > 0) })
+      for (const b of minted) await notifyUser(user, (l) => badgeText(b, l))
       out.push({ user, streak: streak.weeks, minted: minted.length })
     } catch (e) {
       out.push({ user, streak: 0, minted: 0, error: (e as Error).message.slice(0, 200) })

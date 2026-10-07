@@ -10,6 +10,8 @@ test('goals are validated: name, target, share, at most 100% shared', () => {
   const g = cleanGoals([{ name: '  Trip to Bali ', target: 500, share: 60, deadline: NOW + 30 * 86400 }], NOW)
   assert.equal(g[0].name, 'Trip to Bali')
   assert.ok(g[0].id)
+  assert.equal(g[0].public, false)
+  assert.equal(cleanGoals([{ name: 'x', target: 5, share: 10, public: true }], NOW)[0].public, true)
   assert.throws(() => cleanGoals([{ name: '', target: 5, share: 10 }], NOW), /name/)
   assert.throws(() => cleanGoals([{ name: 'x', target: 0, share: 10 }], NOW), /target/)
   assert.throws(() => cleanGoals([{ name: 'a', target: 5, share: 60 }, { name: 'b', target: 5, share: 50 }], NOW), /over_100/)

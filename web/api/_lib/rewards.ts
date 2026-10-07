@@ -23,6 +23,7 @@ export type Goal = {
   deadline: number // unix seconds, 0 = none
   share: number // percent of all savings this pocket holds; the shares of all goals sum to at most 100
   createdAt: number
+  public?: boolean // shared: /goal/:user/:id shows its name and progress to anyone with the link
 }
 
 /** Validates goals from the app; throws on bad input. */
@@ -38,7 +39,7 @@ export function cleanGoals(input: unknown, now: number): Goal[] {
     if (!(target > 0) || target > 1e9) throw new Error('goal_target_invalid')
     if (!(share >= 1 && share <= 100)) throw new Error('goal_share_invalid')
     const id = /^[a-z0-9-]{1,40}$/.test(String(g?.id)) ? String(g!.id) : `g${now}${i}`
-    return { id, name, target, deadline, share, createdAt: Number(g?.createdAt) || now }
+    return { id, name, target, deadline, share, createdAt: Number(g?.createdAt) || now, public: g?.public === true }
   })
   if (goals.reduce((s, g) => s + g.share, 0) > 100) throw new Error('goal_shares_over_100')
   return goals
@@ -55,6 +56,8 @@ export function goalProgress(g: Goal, totalSavings: number, now: number) {
 const goalsKey = (user: string) => `goals:${user.toLowerCase()}`
 export const getGoals = async (user: string) => (await kv.get<Goal[]>(goalsKey(user)).catch(() => null)) ?? []
 export const setGoals = (user: string, goals: Goal[]) => kv.set(goalsKey(user), goals)
+/** A goal its owner shared, or null: unshared goals stay private even to someone who guesses the id. */
+export const publicGoal = async (user: string, id: string) => (await getGoals(user)).find((g) => g.id === id && g.public) ?? null
 
 // ─── C2 streaks + badges ─────────────────────────────────────────────────────
 
@@ -84,8 +87,8 @@ export const BADGE = { STREAK_4_WEEKS: 3, GOAL_REACHED: 4, FIRST_AGENT_RUN: 5 } 
 export const BADGES_ABI = ['function badgesOf(address user) view returns (uint64[6])', 'function award(address user,uint8 badge)']
 const badgesAddress = () => process.env.BADGES_ADDRESS || DEPLOYMENT.v2.badges
 
-/** Mints the awarded badges the user has earned and doesn't hold yet; returns the tx hashes. */
-export async function awardBadges(user: string, earned: { streak: boolean; goal: boolean; agentRun: boolean }): Promise<string[]> {
+/** Mints the awarded badges the user has earned and doesn't hold yet; returns the badge ids it minted. */
+export async function awardBadges(user: string, earned: { streak: boolean; goal: boolean; agentRun: boolean }): Promise<number[]> {
   const want: number[] = []
   if (earned.streak) want.push(BADGE.STREAK_4_WEEKS)
   if (earned.goal) want.push(BADGE.GOAL_REACHED)
@@ -94,12 +97,12 @@ export async function awardBadges(user: string, earned: { streak: boolean; goal:
   const read = new Contract(badgesAddress(), BADGES_ABI, chainProvider())
   const held = (await read.badgesOf(user)) as bigint[]
   const c = new Contract(badgesAddress(), BADGES_ABI, agentWallet())
-  const out: string[] = []
+  const out: number[] = []
   for (const b of want) {
     if (held[b] !== 0n) continue
     const tx = await c.award(user, b)
     await tx.wait()
-    out.push(tx.hash as string)
+    out.push(b)
   }
   return out
 }
