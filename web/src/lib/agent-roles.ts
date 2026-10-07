@@ -7,6 +7,7 @@ export type AgentRoleSlug = 'market' | 'savings' | 'investment' | 'guardrails' |
 
 export type AgentRole = {
   slug: AgentRoleSlug
+  god: string // the role's name in the council (landing, components/landing/council.tsx)
   step: AgentStep['agent'] | null // which run steps belong to this role
   icon: ComponentType<{ className?: string }>
   name: MessageKey
@@ -16,8 +17,9 @@ export type AgentRole = {
   limits: MessageKey
 }
 
-const role = (slug: AgentRoleSlug, step: AgentRole['step'], icon: AgentRole['icon'], name: MessageKey): AgentRole => ({
+const role = (slug: AgentRoleSlug, god: string, step: AgentRole['step'], icon: AgentRole['icon'], name: MessageKey): AgentRole => ({
   slug,
+  god,
   step,
   icon,
   name,
@@ -29,13 +31,13 @@ const role = (slug: AgentRoleSlug, step: AgentRole['step'], icon: AgentRole['ico
 
 // Pipeline order: market read → strategists → guardrails → risk officer → executor → reporter
 export const AGENT_ROLES: AgentRole[] = [
-  role('market', 'market', LineChartIcon, 'agent.roleMarket'),
-  role('savings', 'savings', PiggyBankIcon, 'agent.roleSavings'),
-  role('investment', 'investment', TrendingUpIcon, 'agent.roleInvestment'),
-  role('guardrails', 'guard', ShieldCheckIcon, 'agent.roleGuard'),
-  role('risk', 'risk', ScaleIcon, 'agent.roleRisk'),
-  role('executor', 'executor', ZapIcon, 'agent.roleExecutor'),
-  role('reporter', null, NewspaperIcon, 'agent.roleReporter'),
+  role('market', 'Apollo', 'market', LineChartIcon, 'agent.roleMarket'),
+  role('savings', 'Demeter', 'savings', PiggyBankIcon, 'agent.roleSavings'),
+  role('investment', 'Athena', 'investment', TrendingUpIcon, 'agent.roleInvestment'),
+  role('guardrails', 'Perseus', 'guard', ShieldCheckIcon, 'agent.roleGuard'),
+  role('risk', 'Hades', 'risk', ScaleIcon, 'agent.roleRisk'),
+  role('executor', 'Heracles', 'executor', ZapIcon, 'agent.roleExecutor'),
+  role('reporter', 'Nyx', null, NewspaperIcon, 'agent.roleReporter'),
 ]
 
 export const agentRoleFor = (step: AgentStep['agent']) => AGENT_ROLES.find((r) => r.step === step)!
