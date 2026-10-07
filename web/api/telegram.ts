@@ -56,10 +56,13 @@ const mixText = (m: { conservative: number; balanced: number; growth: number }, 
 
 async function portfolioText(user: string, locale: string): Promise<string> {
   const [s, pools] = await Promise.all([readUserState(user), loadPools(user)])
-  const invested = s.vaults.reduce((sum, v) => sum + v.userPosition, 0n)
+  const invested = s.vaults.reduce((sum, v) => sum + v.userPosition, s.positions.basket) // vaults + the AI Smart Money basket
   const active = pools.pools.find((p) => p.id === pools.activeId)
   const vaultNames: Record<string, string> = { conservative: idOrEn(locale, 'Konservatif', 'Conservative'), balanced: idOrEn(locale, 'Seimbang', 'Balanced'), growth: idOrEn(locale, 'Agresif', 'Growth') }
-  const lines = s.vaults.map((v) => `• ${vaultNames[v.target]} (${v.apyBps / 100}% APY): ${money(v.userPosition, locale)}`)
+  const lines = [
+    ...s.vaults.map((v) => `• ${vaultNames[v.target]} (${v.apyBps / 100}% APY): ${money(v.userPosition, locale)}`),
+    `• AI Smart Money: ${money(s.positions.basket, locale)}`,
+  ]
   const strategy = active
     ? idOrEn(locale, `Patokan AI: ${active.name}
 ${mixText(vaultMix(active.weights), locale)}`, `AI benchmark: ${active.name}
@@ -89,7 +92,7 @@ async function poolsText(user: string, locale: string): Promise<string> {
   return `${idOrEn(locale, 'Pool tersimpan', 'Saved pools')} (✓ = ${idOrEn(locale, 'patokan AI', 'AI benchmark')})\n\n${rows.join('\n\n')}\n\n${idOrEn(locale, 'Ganti dengan /use <nama pool> atau /use off.', 'Switch with /use <pool name> or /use off.')}`
 }
 
-async function useText(user: string, arg: string, locale: string): Promise<string> {
+async function applyPoolText(user: string, arg: string, locale: string): Promise<string> {
   const { pools } = await loadPools(user)
   if (!arg || ['off', 'none', 'stop'].includes(arg.toLowerCase())) {
     await setActivePool(user, null)
@@ -181,7 +184,7 @@ export async function POST(req: Request) {
     } else if (command === '/pools') {
       await sendTelegram(chatId, await poolsText(user, locale))
     } else if (command === '/use') {
-      await sendTelegram(chatId, await useText(user, rest.join(' ').trim(), locale))
+      await sendTelegram(chatId, await applyPoolText(user, rest.join(' ').trim(), locale))
     } else if (command === '/deposit') {
       await sendTelegram(chatId, depositText(locale))
     } else if (command === '/report' || command === '/run') {
